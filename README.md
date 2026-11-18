@@ -73,6 +73,17 @@ firebase deploy
 ### 기타
 빌드 과정이 없는 정적 파일이라 Cloudflare Pages, Netlify, Vercel 등에 폴더째 올려도 됩니다.
 
+## 랭킹 (게스트)
+
+결과 화면에서 닉네임만 적으면 랭킹에 올라갑니다. 닉네임별 최고 일치율로 **오늘 / 전체** 순위를 보여 줍니다.
+
+- 서버: `worker/` — Cloudflare Workers + D1, 주소 `https://api.saekgam.cc`
+  - `GET /ranking?period=today|all&limit=20`, `POST /scores {name, score, target, mine}`
+  - 닉네임 1~12자, 점수 0~100, 같은 IP는 4초에 1번·하루 300번까지
+- 배포: Cloudflare 대시보드의 Workers에서 이 저장소를 연결 (루트 디렉터리 `worker`)
+- 테스트: `node --test worker/test/*.test.mjs`
+- 게스트 랭킹이라 점수 조작을 완전히 막을 수는 없습니다. 이상한 기록은 D1 콘솔에서 지우면 됩니다.
+
 ## 개발
 
 ```bash

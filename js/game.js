@@ -305,6 +305,7 @@
     card.classList.remove('show', 'done');
     ov.hidden = false;
     window.Ads && window.Ads.showResultAd($('result-ad'));
+    window.Ranking && window.Ranking.onResult({ score: res.score, target: target.hex, mine: res.hex });
     requestAnimationFrame(() => card.classList.add('show'));
     const t0 = performance.now() + 450, dur = 1300;
     cancelAnimationFrame(revealRaf);
@@ -532,6 +533,7 @@
   cv.addEventListener('contextmenu', e => e.preventDefault());
 
   window.addEventListener('keydown', e => {
+    if (!$('ranking').hidden) return;
     if (!$('howto').hidden) { if (e.key === 'Escape') closeHowto(); return; }
     if (state === 'result') { if (e.key === 'Escape') hideResult(); return; }
     const m = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
