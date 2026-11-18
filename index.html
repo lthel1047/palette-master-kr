@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>절대 색감 — 물감 조색 게임</title>
+  <meta name="description" content="8가지 물감을 직접 짜고 섞어서 목표 색을 100%에 가깝게 맞추는 조색 게임">
+  <meta name="theme-color" content="#8d8f94">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="절대 색감 — 물감 조색 게임">
+  <meta property="og:description" content="물감을 섞어 목표 색을 맞춰 보세요. 당신의 일치율은?">
+  <meta property="og:image" content="og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <button id="clear" class="round-btn" type="button" aria-label="팔레트 비우기" title="팔레트 비우기">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/></svg>
+      </button>
+      <div class="brand">
+        <h1>절대 색감</h1>
+        <span id="best" class="best">최고 기록 —</span>
+      </div>
+      <button id="howto-btn" class="pill-btn" type="button">게임 방법</button>
+    </header>
+
+    <section class="targetbar" aria-label="목표 색">
+      <div id="target" class="target-card" role="img" aria-label="목표 색">
+        <span class="target-label">목표</span>
+      </div>
+      <button id="done" class="done-btn" type="button">완성</button>
+    </section>
+
+    <div id="stage">
+      <canvas id="cv" aria-label="물감 팔레트. 튜브를 팔레트로 끌어 물감을 짜고, 팔레트를 드래그해 섞습니다."></canvas>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- 결과 화면 (광고는 여기에만 노출) -->
+  <div id="result" class="overlay" hidden>
+    <div class="result-card" role="dialog" aria-modal="true" aria-labelledby="result-title">
+      <h2 id="result-title" class="visually-hidden">결과</h2>
+      <div class="compare">
+        <figure class="sw sw-target"><div class="chip" id="cmp-target"></div><figcaption>목표 <b id="hex-target"></b></figcaption></figure>
+        <figure class="sw sw-mine"><div class="chip" id="cmp-mine"></div><figcaption>내 색 <b id="hex-mine"></b></figcaption></figure>
+      </div>
+      <p id="score" class="score" aria-live="polite">일치율 0.0%</p>
+      <p id="grade" class="grade"></p>
+      <p id="recipe" class="recipe"></p>
+      <div class="result-actions">
+        <button id="again" class="btn ghost" type="button">계속 섞기</button>
+        <button id="next" class="btn primary" type="button">새 문제</button>
+        <button id="share" class="btn ghost" type="button">공유</button>
+      </div>
+      <div id="result-ad" class="ad-slot" aria-label="광고"></div>
+    </div>
+  </div>
+
+  <!-- 게임 방법 -->
+  <div id="howto" class="overlay" hidden>
+    <div class="howto-card" role="dialog" aria-modal="true" aria-labelledby="howto-title">
+      <h2 id="howto-title">게임 방법</h2>
+      <p>8가지 물감을 섞어서 위에 보이는 <b>목표 색</b>과 같은 색을 만드는 게임이에요. 물감은 진짜처럼 섞여서 파랑과 노랑을 섞으면 초록이 돼요.</p>
+      <h3>조작</h3>
+      <ul>
+        <li><b>튜브</b>를 누른 채 팔레트로 끌어오면 물감이 나와요.</li>
+        <li>팔레트의 다른 곳을 드래그하면 <b>헤라</b>로 물감을 섞고 펴 바를 수 있어요.</li>
+        <li><b>돋보기</b>는 테두리나 손잡이를 잡고 옮겨요. PC에서는 방향키로도 움직여요.</li>
+        <li><b>완성</b>을 누르면 돋보기 렌즈 안에 보이는 색과 목표 색을 비교해 일치율을 알려 줘요. 덜 섞인 얼룩이 있으면 점수가 내려가요.</li>
+        <li>왼쪽 위 버튼으로 팔레트를 깨끗하게 비울 수 있어요.</li>
+      </ul>
+      <h3>요령</h3>
+      <p>흰색을 넣으면 밝아지고, 검정은 조금만 넣어도 확 어두워져요. 렌즈 안을 헤라로 충분히 섞어 얼룩을 없앤 뒤에 완성을 누르세요.</p>
+      <button id="howto-close" class="btn primary" type="button">시작하기</button>
+    </div>
+  </div>
+
+  <script src="ads-config.js"></script>
+  <script src="js/color.js"></script>
+  <script src="js/ads.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

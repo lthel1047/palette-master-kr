@@ -1,0 +1,171 @@
+:root {
+  --bg: #8d8f94;
+  --bg-deep: #7c7e83;
+  --ink: #1d1d1f;
+  --paper: #f3f2ee;
+  --card: #fbfaf7;
+  --accent: #e8573a;
+  --muted: #6b6b70;
+  --palette-w: 360px;
+  --font: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background: radial-gradient(120% 90% at 50% 30%, #9a9ca1 0%, var(--bg) 55%, var(--bg-deep) 100%);
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font-family: inherit; cursor: pointer; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+#app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: max(10px, env(safe-area-inset-top)) 12px max(8px, env(safe-area-inset-bottom));
+}
+
+/* 상단 바 */
+.topbar {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.brand { text-align: center; line-height: 1.1; }
+.brand h1 { margin: 0; font-size: 19px; letter-spacing: -0.02em; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.best { font-size: 12px; color: rgba(255,255,255,.85); }
+.round-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: 0;
+  background: #fff; color: var(--ink);
+  display: grid; place-items: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+}
+.pill-btn {
+  height: 36px; padding: 0 14px; border-radius: 18px; border: 0;
+  background: #fff; color: var(--ink); font-weight: 700; font-size: 13px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+}
+.round-btn:active, .pill-btn:active { transform: scale(.96); }
+
+/* 목표 색 + 완성 */
+.targetbar {
+  width: var(--palette-w);
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.target-card {
+  position: relative;
+  flex: 1;
+  height: clamp(54px, 9dvh, 76px);
+  border-radius: 6px;
+  background: #999;
+  box-shadow: 0 3px 8px rgba(0,0,0,.25), inset 0 0 0 1px rgba(0,0,0,.06);
+  transition: background-color .35s ease;
+}
+.target-label {
+  position: absolute; left: 8px; top: 6px;
+  font-size: 12px; font-weight: 800; color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
+}
+.target-card.light .target-label { color: rgba(0,0,0,.72); text-shadow: none; }
+.done-btn {
+  width: clamp(64px, 22%, 96px);
+  border: 0; border-radius: 10px;
+  background: #e9e9ec; color: #333;
+  font-size: 15px; font-weight: 800;
+  box-shadow: 0 3px 8px rgba(0,0,0,.22), inset 0 -3px 0 rgba(0,0,0,.08);
+}
+.done-btn:active { transform: translateY(1px); box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+
+/* 팔레트 캔버스 */
+#stage { position: relative; flex: 1; width: 100%; min-height: 0; margin-top: 8px; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+#cv:focus { outline: none; }
+
+.toast {
+  position: absolute; left: 50%; top: 14px; transform: translate(-50%, -8px);
+  max-width: min(92%, 420px);
+  background: rgba(20,20,22,.88); color: #fff;
+  padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.4; text-align: center;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* 오버레이 공통 */
+.overlay {
+  position: fixed; inset: 0; z-index: 10;
+  display: grid; place-items: center;
+  background: rgba(30,30,34,.45);
+  backdrop-filter: blur(3px);
+  padding: 16px;
+  overflow-y: auto;
+}
+.overlay[hidden] { display: none; }
+
+/* 결과 */
+.result-card, .howto-card {
+  width: min(100%, 400px);
+  background: var(--card);
+  border-radius: 18px;
+  padding: 22px 20px 18px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+  text-align: center;
+}
+.compare { display: flex; justify-content: center; gap: 0; margin: 4px 0 6px; }
+.sw { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.sw b { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; color: var(--ink); }
+.chip { width: 118px; height: 118px; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.sw-target .chip { border-radius: 12px 0 0 12px; }
+.sw-mine .chip { border-radius: 0 12px 12px 0; }
+.result-card .sw-target { transform: translateX(-40px); opacity: 0; }
+.result-card .sw-mine { transform: translateX(40px); opacity: 0; }
+.result-card.show .sw { transform: none; opacity: 1; transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s; }
+.score { margin: 10px 0 2px; font-size: 34px; font-weight: 900; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.grade { margin: 0; min-height: 22px; font-size: 16px; font-weight: 700; color: var(--accent); }
+.grade .new { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 12px; vertical-align: 2px; }
+.recipe { margin: 8px 0 0; min-height: 18px; font-size: 13px; color: var(--muted); opacity: 0; transition: opacity .3s; }
+.result-card.done .recipe { opacity: 1; }
+.result-actions { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+.btn {
+  height: 44px; padding: 0 16px; border-radius: 12px; border: 0;
+  font-size: 15px; font-weight: 800;
+}
+.btn.primary { background: var(--ink); color: #fff; }
+.btn.ghost { background: #ececef; color: var(--ink); }
+.btn:active { transform: scale(.97); }
+
+/* 광고 영역: 결과 화면 전용 */
+.ad-slot { margin-top: 16px; min-height: 0; display: flex; justify-content: center; }
+.ad-slot:empty { display: none; }
+.ad-slot .ad-placeholder {
+  width: 100%; height: 100px; border: 1.5px dashed #c9c9cf; border-radius: 10px;
+  display: grid; place-items: center; color: #9a9aa2; font-size: 12px;
+}
+.ad-slot ins { display: block; width: 100%; }
+
+/* 게임 방법 */
+.howto-card { text-align: left; line-height: 1.55; font-size: 14.5px; }
+.howto-card h2 { margin: 0 0 8px; font-size: 20px; }
+.howto-card h3 { margin: 14px 0 4px; font-size: 15px; }
+.howto-card ul { margin: 0; padding-left: 18px; }
+.howto-card li { margin: 3px 0; }
+.howto-card .btn { width: 100%; margin-top: 16px; }
+
+@media (min-width: 900px) {
+  .brand h1 { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
