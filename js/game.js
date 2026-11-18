@@ -594,7 +594,7 @@
     if (state !== 'playing' || drag) return;
     const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     const touch = e.pointerType !== 'mouse';
-    cv.setPointerCapture(e.pointerId);
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}   // 일부 기기에서 실패해도 조작은 계속되게
     if (hitLens(x, y)) {
       const [gx, gy] = toGrid(x, y);
       drag = { id: e.pointerId, mode: 'lens', ox: lens.x - gx, oy: lens.y - gy, x, y };
@@ -604,7 +604,7 @@
         drag = { id: e.pointerId, mode: 'tube', tube: t, x, y, sx: x, sy: y, touch, last: null };
       } else {
         const [gx, gy] = toGrid(x, y);
-        if (!inPalette(gx, gy)) { cv.releasePointerCapture(e.pointerId); return; }
+        if (!inPalette(gx, gy)) { try { cv.releasePointerCapture(e.pointerId); } catch (err) {} return; }
         drag = { id: e.pointerId, mode: 'knife', x, y };
         knife.x = gx; knife.y = gy; knife.active = true;
         knifeStep(gx, gy);
