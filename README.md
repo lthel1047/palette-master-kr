@@ -75,11 +75,14 @@ firebase deploy
 
 ## 랭킹 (게스트)
 
-결과 화면에서 닉네임만 적으면 랭킹에 올라갑니다. 닉네임별 최고 일치율로 **오늘 / 전체** 순위를 보여 줍니다.
+게임은 두 모드로 진행하고, 랭킹도 모드별로 따로 매깁니다. 결과 화면에서 닉네임만 적으면 올라가고, 닉네임별 최고 기록으로 **오늘 / 전체** 순위를 보여 줍니다.
+
+- ⏱ **30초 챌린지**: 30초 안에 「완성」을 누르거나 시간이 끝난 순간의 일치율. 높을수록 위 (같으면 빠른 사람)
+- ⚡ **스피드 런**: 일치율 90%를 넘기기까지 걸린 시간. 짧을수록 위 (5분이 넘으면 실패)
 
 - 서버: `worker/` — Cloudflare Workers + D1, 주소 `https://api.saekgam.cc`
-  - `GET /ranking?period=today|all&limit=20`, `POST /scores {name, score, target, mine}`
-  - 닉네임 1~12자, 점수 0~100, 같은 IP는 4초에 1번·하루 300번까지
+  - `GET /ranking?mode=sec30|speed&period=today|all&limit=20`, `POST /runs {mode, name, score, time_ms, target, mine}`
+  - 닉네임 1~12자, 30초 모드는 31초 이내, 스피드 런은 90% 이상·1.5초~5분, 같은 IP는 4초에 1번·하루 300번까지
 - 배포: Cloudflare 대시보드의 Workers에서 이 저장소를 연결 (루트 디렉터리 `worker`)
 - 테스트: `node --test worker/test/*.test.mjs`
 - 게스트 랭킹이라 점수 조작을 완전히 막을 수는 없습니다. 이상한 기록은 D1 콘솔에서 지우면 됩니다.

@@ -11,8 +11,14 @@
     return (window.RANKING_API || 'https://api.saekgam.cc').replace(/\/$/, '');
   })();
 
-  let current = null;       // 이번 결과 { score, target, mine, submitted }
+  let current = null;       // 이번 결과 { mode, score, time_ms, target, mine, ok, submitted }
   let period = 'today';
+  let mode = 'sec30';
+  const RULES = {
+    sec30: '30초 안에 낸 일치율이 높은 순 (같으면 더 빨리 낸 사람이 위)',
+    speed: '일치율 90%를 넘기기까지 걸린 시간이 짧은 순',
+  };
+  const sec = ms => `${(ms / 1000).toFixed(1)}초`;
   let myName = '';
   try { myName = localStorage.getItem(NAME_KEY) || ''; } catch (e) {}
 
@@ -39,6 +45,9 @@
   // ---------- 결과 화면 ----------
   function onResult(r) {
     current = { ...r, submitted: false };
+    mode = r.mode;
+    $('rank-form').hidden = !r.ok;
+    if (!r.ok) { setMsg(''); return; }
     const input = $('rank-name'), btn = $('rank-submit');
     input.value = myName;
     input.disabled = false; btn.disabled = false;
@@ -55,10 +64,10 @@
     if (!name) { setMsg('닉네임을 적어 주세요', 'err'); input.focus(); return; }
     btn.disabled = true; btn.textContent = '등록 중…';
     try {
-      const r = await api('/scores', {
+      const r = await api('/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, score: current.score, target: current.target, mine: current.mine }),
+        body: JSON.stringify({ mode: current.mode, name, score: current.score, time_ms: current.time_ms, target: current.target, mine: current.mine }),
       });
       current.submitted = true;
       myName = r.name;
@@ -68,7 +77,7 @@
       msg.textContent = `오늘 ${r.rankToday}위 · 전체 ${r.rankAll}위`;
       const link = document.createElement('button');
       link.type = 'button'; link.className = 'link-btn'; link.textContent = '랭킹 보기';
-      link.addEventListener('click', () => open('today'));
+      link.addEventListener('click', () => open('today', current.mode));
       $('rank-msg').replaceChildren(msg, ' ', link);
       $('rank-msg').className = 'rank-msg ok';
     } catch (err) {
@@ -87,7 +96,10 @@
     const b = document.createElement('i'); b.style.background = item.mine; b.title = `내 색 ${item.mine}`;
     sw.append(a, b);
     const name = document.createElement('span'); name.className = 'n'; name.textContent = item.name;
-    const score = document.createElement('span'); score.className = 's'; score.textContent = `${Number(item.score).toFixed(1)}%`;
+    const score = document.createElement('span'); score.className = 's';
+    const main = mode === 'speed' ? sec(item.time_ms) : `${Number(item.score).toFixed(1)}%`;
+    const extra = mode === 'speed' ? `${Number(item.score).toFixed(1)}%` : sec(item.time_ms);
+    score.append(main, Object.assign(document.createElement('small'), { textContent: extra }));
     li.append(rank, sw, name, score);
     return li;
   }
@@ -95,9 +107,13 @@
   async function load() {
     const list = $('ranking-list');
     list.replaceChildren(Object.assign(document.createElement('li'), { className: 'empty', textContent: '불러오는 중…' }));
-    document.querySelectorAll('#ranking .tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.period === period)));
+    document.querySelectorAll('#ranking .period-tabs .tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.period === period)));
+    document.querySelectorAll('#ranking .mode-tabs .tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.mode === mode)));
+    $('ranking-rule').textContent = RULES[mode];
+    const want = `${mode}/${period}`;
     try {
-      const r = await api(`/ranking?period=${period}&limit=30`);
+      const r = await api(`/ranking?mode=${mode}&period=${period}&limit=30`);
+      if (`${mode}/${period}` !== want) return;   // 탭을 빨리 바꾼 경우 늦게 온 응답은 버림
       if (!r.items.length) {
         list.replaceChildren(Object.assign(document.createElement('li'), { className: 'empty', textContent: '아직 아무도 없어요. 첫 번째로 올라가 보세요!' }));
         return;
@@ -108,8 +124,9 @@
     }
   }
 
-  function open(p) {
+  function open(p, m) {
     if (p) period = p;
+    if (m) mode = m;
     $('ranking').hidden = false;
     $('ranking-close').focus();
     load();
@@ -120,7 +137,8 @@
   $('rank-btn').addEventListener('click', () => open());
   $('ranking-close').addEventListener('click', close);
   $('ranking').addEventListener('click', e => { if (e.target.id === 'ranking') close(); });
-  document.querySelectorAll('#ranking .tab').forEach(t => t.addEventListener('click', () => { period = t.dataset.period; load(); }));
+  document.querySelectorAll('#ranking .period-tabs .tab').forEach(t => t.addEventListener('click', () => { period = t.dataset.period; load(); }));
+  document.querySelectorAll('#ranking .mode-tabs .tab').forEach(t => t.addEventListener('click', () => { mode = t.dataset.mode; load(); }));
   // 랭킹 창이 열려 있으면 Esc 는 랭킹 창만 닫는다 (뒤의 결과 창은 그대로)
   window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ranking').hidden) { e.stopImmediatePropagation(); close(); } });
 

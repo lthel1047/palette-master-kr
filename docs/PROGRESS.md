@@ -25,4 +25,8 @@
   - main에 푸시하면 Cloudflare가 `worker/` 폴더를 자동 배포 (Workers Builds, GitHub 연동)
 - DB: Cloudflare D1 `saekgam-ranking` (Asia Pacific)
   - 이상한 기록 지우기: 대시보드 → D1 → saekgam-ranking → Console
-    `DELETE FROM scores WHERE name = '닉네임';`
+    `DELETE FROM runs WHERE name = '닉네임';` (모드만 지우려면 `AND mode = 'sec30'` 또는 `'speed'`)
+
+## 모드별 랭킹으로 변경 (2026-11-19)
+- 일반 모드와 일반 랭킹을 없애고 ⏱ 30초 챌린지 / ⚡ 스피드 런 두 모드로 나눔
+- DB 표: `runs` (mode, name, score, time_ms, ...). 예전 `scores` 표는 쓰지 않음

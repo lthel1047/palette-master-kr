@@ -31,13 +31,15 @@
       </div>
       <div class="top-actions">
         <button id="rank-btn" class="pill-btn" type="button">랭킹</button>
-        <button id="howto-btn" class="pill-btn" type="button">게임 방법</button>
+        <button id="howto-btn" class="round-btn" type="button" aria-label="게임 방법" title="게임 방법">?</button>
       </div>
     </header>
 
     <section class="targetbar" aria-label="목표 색">
       <div id="target" class="target-card" role="img" aria-label="목표 색">
         <span class="target-label">목표</span>
+        <button id="mode-chip" class="mode-chip" type="button" aria-label="모드 바꾸기"></button>
+        <span id="timer" class="timer" aria-live="off"></span>
       </div>
       <button id="done" class="done-btn" type="button">완성</button>
     </section>
@@ -52,11 +54,13 @@
   <div id="result" class="overlay" hidden>
     <div class="result-card" role="dialog" aria-modal="true" aria-labelledby="result-title">
       <h2 id="result-title" class="visually-hidden">결과</h2>
+      <p id="result-mode" class="result-mode"></p>
       <div class="compare">
         <figure class="sw sw-target"><div class="chip" id="cmp-target"></div><figcaption>목표 <b id="hex-target"></b></figcaption></figure>
         <figure class="sw sw-mine"><div class="chip" id="cmp-mine"></div><figcaption>내 색 <b id="hex-mine"></b></figcaption></figure>
       </div>
       <p id="score" class="score" aria-live="polite">일치율 0.0%</p>
+      <p id="sub" class="sub"></p>
       <p id="grade" class="grade"></p>
       <p id="recipe" class="recipe"></p>
       <form id="rank-form" class="rank-form" autocomplete="off">
@@ -65,8 +69,8 @@
       </form>
       <p id="rank-msg" class="rank-msg" aria-live="polite"></p>
       <div class="result-actions">
-        <button id="again" class="btn ghost" type="button">계속 섞기</button>
-        <button id="next" class="btn primary" type="button">새 문제</button>
+        <button id="again" class="btn ghost" type="button">모드 변경</button>
+        <button id="next" class="btn primary" type="button">다시 하기</button>
         <button id="share" class="btn ghost" type="button">공유</button>
       </div>
       <div id="result-ad" class="ad-slot" aria-label="광고"></div>
@@ -80,12 +84,33 @@
         <h2 id="ranking-title">랭킹</h2>
         <button id="ranking-close" class="round-btn small" type="button" aria-label="닫기">✕</button>
       </div>
-      <div class="tabs" role="tablist">
+      <div class="tabs mode-tabs" role="tablist" aria-label="모드">
+        <button class="tab" role="tab" data-mode="sec30" aria-selected="true">⏱ 30초 챌린지</button>
+        <button class="tab" role="tab" data-mode="speed" aria-selected="false">⚡ 스피드 런</button>
+      </div>
+      <div class="tabs period-tabs" role="tablist" aria-label="기간">
         <button class="tab" role="tab" data-period="today" aria-selected="true">오늘</button>
         <button class="tab" role="tab" data-period="all" aria-selected="false">전체</button>
       </div>
+      <p id="ranking-rule" class="ranking-rule"></p>
       <ol id="ranking-list" class="ranking-list"></ol>
-      <p class="ranking-note">닉네임별 최고 일치율 · 매일 0시(한국 시간)에 오늘 랭킹이 새로 시작돼요</p>
+      <p class="ranking-note">닉네임별 최고 기록 · 매일 0시(한국 시간)에 오늘 랭킹이 새로 시작돼요</p>
+    </div>
+  </div>
+
+  <!-- 모드 선택 -->
+  <div id="modes" class="overlay" hidden>
+    <div class="modes-card" role="dialog" aria-modal="true" aria-labelledby="modes-title">
+      <h2 id="modes-title">모드 선택</h2>
+      <button class="mode-card" type="button" data-mode="sec30">
+        <span class="mode-icon">⏱</span>
+        <span class="mode-text"><b>30초 챌린지</b><small>30초 안에 최대한 비슷하게! 「완성」을 누르거나 시간이 끝난 순간의 일치율로 겨뤄요.</small></span>
+      </button>
+      <button class="mode-card" type="button" data-mode="speed">
+        <span class="mode-icon">⚡</span>
+        <span class="mode-text"><b>스피드 런</b><small>일치율 90%를 넘길 때까지 걸린 시간으로 겨뤄요. 못 넘기면 계속 섞어서 다시 「완성」!</small></span>
+      </button>
+      <p class="modes-note">모드를 고르면 바로 시간이 흘러요.</p>
     </div>
   </div>
 
@@ -94,13 +119,18 @@
     <div class="howto-card" role="dialog" aria-modal="true" aria-labelledby="howto-title">
       <h2 id="howto-title">게임 방법</h2>
       <p>8가지 물감을 섞어서 위에 보이는 <b>목표 색</b>과 같은 색을 만드는 게임이에요. 물감은 진짜처럼 섞여서 파랑과 노랑을 섞으면 초록이 돼요.</p>
+      <h3>모드</h3>
+      <ul>
+        <li><b>⏱ 30초 챌린지</b>: 30초 안에 「완성」을 누르거나 시간이 끝나면 그때의 일치율이 기록돼요.</li>
+        <li><b>⚡ 스피드 런</b>: 일치율 90%를 넘기기까지 걸린 시간이 기록돼요.</li>
+      </ul>
       <h3>조작</h3>
       <ul>
         <li><b>튜브</b>를 누른 채 팔레트로 끌어오면 물감이 나와요.</li>
         <li>팔레트의 다른 곳을 드래그하면 <b>헤라</b>로 물감을 섞고 펴 바를 수 있어요.</li>
         <li><b>돋보기</b>는 테두리나 손잡이를 잡고 옮겨요. PC에서는 방향키로도 움직여요.</li>
         <li><b>완성</b>을 누르면 돋보기 렌즈 안에 보이는 색과 목표 색을 비교해 일치율을 알려 줘요. 덜 섞인 얼룩이 있으면 점수가 내려가요.</li>
-        <li>왼쪽 위 버튼으로 팔레트를 깨끗하게 비울 수 있어요.</li>
+        <li>왼쪽 위 버튼으로 팔레트를 깨끗하게 비울 수 있어요. (시간은 계속 흘러요)</li>
       </ul>
       <h3>요령</h3>
       <p>흰색을 넣으면 밝아지고, 검정은 조금만 넣어도 확 어두워져요. 렌즈 안을 헤라로 충분히 섞어 얼룩을 없앤 뒤에 완성을 누르세요.</p>

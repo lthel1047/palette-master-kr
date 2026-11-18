@@ -222,3 +222,50 @@ button { font-family: inherit; cursor: pointer; }
 @media (max-width: 380px) {
   .pill-btn { padding: 0 10px; font-size: 12px; }
 }
+
+/* 모드 칩 + 타이머 (목표 카드 안) */
+.mode-chip {
+  position: absolute; left: 8px; bottom: 6px;
+  border: 0; border-radius: 10px; padding: 2px 8px;
+  background: rgba(0,0,0,.28); color: #fff; font: inherit; font-size: 11.5px; font-weight: 700;
+}
+.mode-chip:empty { display: none; }
+.timer {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  font-size: clamp(24px, 5.2dvh, 36px); font-weight: 900; color: #fff;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+  text-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.target-card.light .timer { color: rgba(0,0,0,.78); text-shadow: none; }
+.timer.warn { color: #ff4d3a !important; animation: pulse 1s steps(2) infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+
+/* 결과 */
+.result-mode { margin: 0 0 8px; font-size: 13px; font-weight: 800; color: var(--muted); }
+.sub { margin: 0 0 2px; font-size: 14px; color: var(--muted); }
+
+/* 모드 선택 */
+.modes-card {
+  width: min(100%, 400px); background: var(--card); border-radius: 18px; padding: 22px 18px 16px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+}
+.modes-card h2 { margin: 0 0 14px; font-size: 20px; text-align: center; }
+.mode-card {
+  width: 100%; display: flex; gap: 14px; align-items: center; text-align: left;
+  border: 2px solid #e4e4e8; border-radius: 14px; background: #fff; padding: 14px; margin-bottom: 10px;
+  font: inherit; color: var(--ink);
+}
+.mode-card:hover, .mode-card:focus-visible { border-color: var(--ink); outline: none; }
+.mode-card:active { transform: scale(.98); }
+.mode-icon { font-size: 30px; }
+.mode-text b { display: block; font-size: 17px; margin-bottom: 3px; }
+.mode-text small { display: block; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.modes-note { margin: 4px 0 0; text-align: center; font-size: 12px; color: var(--muted); }
+
+/* 랭킹: 모드 탭 + 기록 */
+.mode-tabs { margin-bottom: 0; }
+.period-tabs { margin-top: 6px; }
+.ranking-rule { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-align: center; }
+.ranking-list .s { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.ranking-list .s small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.round-btn#howto-btn { font-size: 18px; font-weight: 800; }

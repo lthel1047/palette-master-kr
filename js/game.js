@@ -22,7 +22,12 @@
   const SCORE_ZERO = 40;        // CIEDE2000 이 값 이상이면 0%
   const PAINT_MIN = 0.18;       // 판정에 필요한 렌즈 안 평균 두께 비율
   const TUBE_AREA = 118;        // 튜브 받침 영역 높이 (CSS px)
-  const BEST_KEY = 'jeoldae-saekgam.best';
+  const BEST_KEY = 'jeoldae-saekgam.best2';  // { sec30: 최고 일치율, speed: 최단 시간(ms) }
+  const MODE_KEY = 'jeoldae-saekgam.mode';
+  const MODES = {
+    sec30: { name: '30초 챌린지', icon: '⏱', limit: 30000 },
+    speed: { name: '스피드 런', icon: '⚡', goal: 90, cap: 300000 },
+  };
   const SEEN_KEY = 'jeoldae-saekgam.howto';
 
   // ---------- 상태 ----------
@@ -34,9 +39,14 @@
   const PAPER = [0.955, 0.950, 0.932].map(CE.toLin);
 
   let target = null;            // { parts, lin, lab, css, hex }
-  let state = 'playing';
-  let best = 0;
-  try { best = parseFloat(localStorage.getItem(BEST_KEY)) || 0; } catch (e) {}
+  let state = 'menu';            // menu → playing → result
+  let mode = 'sec30';
+  let runStart = 0;
+  let bests = {};
+  try { bests = JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch (e) {}
+  try { if (MODES[localStorage.getItem(MODE_KEY)]) mode = localStorage.getItem(MODE_KEY); } catch (e) {}
+  const elapsed = () => performance.now() - runStart;
+  const secText = ms => `${(ms / 1000).toFixed(1)}초`;
 
   const lens = { x: GX * 0.5, y: GY * 0.62 };
   const knife = { load: new Float32Array(NP), active: false, x: 0, y: 0, px: 0, py: 0 };
@@ -245,7 +255,30 @@
     card.classList.toggle('light', target.lab[0] > 72);
     card.setAttribute('aria-label', `목표 색 ${target.hex}`);
     clearPalette();
+    updateModeChip();
     state = 'playing';
+    runStart = performance.now();
+    lastTimerText = '';
+  }
+  function startMode(m) {
+    mode = m;
+    try { localStorage.setItem(MODE_KEY, m); } catch (e) {}
+    $('modes').hidden = true;
+    hideResult();
+    newRound();
+  }
+  function openModes() {
+    if (drag) { if (drag.mode === 'knife') knifeRelease(); drag = null; }
+    state = 'menu';
+    $('result').hidden = true;
+    $('modes').hidden = false;
+    const btn = document.querySelector(`.mode-card[data-mode="${mode}"]`);
+    btn && btn.focus();
+  }
+  function updateModeChip() {
+    const M = MODES[mode];
+    $('mode-chip').textContent = `${M.icon} ${M.name}`;
+    $('timer').classList.toggle('up', mode === 'speed');
   }
   function clearPalette() {
     amt.fill(0); thick.fill(0); dirty.fill(1); knife.load.fill(0); needsRender = true;
@@ -288,39 +321,100 @@
     return '정답 배합 · ' + items.map(([v, n]) => `${n} ${v}`).join(' : ');
   }
 
+  function speedGrade(ms) {
+    if (ms < 10000) return '번개 손!';
+    if (ms < 20000) return '엄청 빨라요';
+    if (ms < 40000) return '빨라요';
+    if (ms < 90000) return '좋아요';
+    return '성공!';
+  }
+
   let revealRaf = 0, lastResult = null;
+  /** res: { score, hex, css, time, timeout?, fail? } */
   function showResult(res) {
+    if (drag) { if (drag.mode === 'knife') knifeRelease(); drag = null; }
     state = 'result';
-    lastResult = res;
-    const isNew = res.score > best;
-    if (isNew) { best = res.score; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) {} }
+    lastResult = { ...res, mode };
+    const M = MODES[mode];
+    let isNew = false;
+    if (!res.fail) {
+      if (mode === 'sec30' && res.score > 0 && !(bests.sec30 >= res.score)) { bests.sec30 = res.score; isNew = true; }
+      if (mode === 'speed' && !(bests.speed <= res.time)) { bests.speed = Math.round(res.time); isNew = true; }
+      if (isNew) { try { localStorage.setItem(BEST_KEY, JSON.stringify(bests)); } catch (e) {} }
+    }
     updateBest();
+    $('result-mode').textContent = `${M.icon} ${M.name}`;
     $('cmp-target').style.background = target.css;
     $('cmp-mine').style.background = res.css;
     $('hex-target').textContent = target.hex;
     $('hex-mine').textContent = res.hex;
     $('grade').textContent = '';
     $('recipe').textContent = recipeText(target.parts);
+    let sub;
+    if (mode === 'sec30') sub = res.timeout ? '⏰ 시간 종료! 그 순간의 색으로 채점했어요' : `⏱ ${secText(res.time)} 만에 완성`;
+    else sub = res.fail ? '5분 안에 90%를 넘기지 못했어요' : `일치율 ${res.score.toFixed(1)}%로 성공`;
+    $('sub').textContent = sub;
     const ov = $('result'), card = ov.querySelector('.result-card');
     card.classList.remove('show', 'done');
     ov.hidden = false;
     window.Ads && window.Ads.showResultAd($('result-ad'));
-    window.Ranking && window.Ranking.onResult({ score: res.score, target: target.hex, mine: res.hex });
+    window.Ranking && window.Ranking.onResult({
+      mode, score: res.score, time_ms: Math.round(res.time), target: target.hex, mine: res.hex,
+      ok: !res.fail && (mode === 'speed' || res.score > 0),
+    });
     requestAnimationFrame(() => card.classList.add('show'));
     const t0 = performance.now() + 450, dur = 1300;
     cancelAnimationFrame(revealRaf);
     const tick = now => {
       const t = Math.max(0, Math.min(1, (now - t0) / dur)), e = 1 - Math.pow(1 - t, 3);
-      $('score').textContent = `일치율 ${(res.score * e).toFixed(1)}%`;
+      if (mode === 'speed' && res.fail) $('score').textContent = '실패';
+      else if (mode === 'speed') $('score').textContent = `⚡ ${secText(res.time * e)}`;
+      else $('score').textContent = `일치율 ${(res.score * e).toFixed(1)}%`;
       if (t < 1) { revealRaf = requestAnimationFrame(tick); return; }
-      $('grade').innerHTML = gradeText(res.score) + (isNew ? '<span class="new">최고 기록</span>' : '');
+      const g = res.fail ? '다시 도전해 보세요' : mode === 'speed' ? speedGrade(res.time) : gradeText(res.score);
+      $('grade').innerHTML = g + (isNew ? '<span class="new">내 최고 기록</span>' : '');
       card.classList.add('done');
     };
     revealRaf = requestAnimationFrame(tick);
     setTimeout(() => $('next').focus(), 50);
   }
-  function hideResult() { $('result').hidden = true; state = 'playing'; }
-  function updateBest() { $('best').textContent = best > 0 ? `최고 기록 ${best.toFixed(1)}%` : '최고 기록 —'; }
+  function hideResult() { $('result').hidden = true; }
+  function updateBest() {
+    const a = bests.sec30 != null ? `30초 ${bests.sec30.toFixed(1)}%` : null;
+    const b = bests.speed != null ? `스피드 ${secText(bests.speed)}` : null;
+    $('best').textContent = a || b ? `내 최고 · ${[a, b].filter(Boolean).join(' · ')}` : '내 최고 기록 —';
+  }
+
+  // ---------- 타이머 ----------
+  let lastTimerText = '';
+  function tickTimer() {
+    if (state !== 'playing') return;
+    const t = elapsed();
+    let text;
+    if (mode === 'sec30') {
+      const left = Math.max(0, MODES.sec30.limit - t);
+      text = (left / 1000).toFixed(1);
+      $('timer').classList.toggle('warn', left < 10000);
+      if (left <= 0) { timeUp(); return; }
+    } else {
+      text = (t / 1000).toFixed(1);
+      $('timer').classList.remove('warn');
+      if (t >= MODES.speed.cap) { giveUp(); return; }
+    }
+    if (text !== lastTimerText) { $('timer').textContent = text; lastTimerText = text; }
+  }
+  function blankResult() {
+    return { score: 0, hex: CE.linToHex(PAPER), css: CE.linToCss(PAPER) };
+  }
+  function timeUp() {
+    $('timer').textContent = '0.0';
+    const res = judge() || blankResult();
+    showResult({ ...res, time: MODES.sec30.limit, timeout: true });
+  }
+  function giveUp() {
+    const res = judge() || blankResult();
+    showResult({ ...res, time: MODES.speed.cap, fail: true });
+  }
 
   let toastTimer = 0;
   function toast(msg, ms = 2200) {
@@ -535,7 +629,7 @@
   window.addEventListener('keydown', e => {
     if (!$('ranking').hidden) return;
     if (!$('howto').hidden) { if (e.key === 'Escape') closeHowto(); return; }
-    if (state === 'result') { if (e.key === 'Escape') hideResult(); return; }
+    if (state !== 'playing') return;
     const m = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (m) { lens.x += m[0]; lens.y += m[1]; clampLens(); needsRender = true; e.preventDefault(); }
   });
@@ -569,6 +663,7 @@
       drag.last = [gx, gy];
       needsRender = true;
     }
+    tickTimer();
     if (needsRender) render();
     requestAnimationFrame(frame);
   }
@@ -578,15 +673,26 @@
     if (state !== 'playing') return;
     const res = judge();
     if (!res) { toast('렌즈 안에 물감이 부족해요. 돋보기를 물감 위로 옮겨 주세요.'); return; }
-    showResult(res);
+    const t = elapsed();
+    if (mode === 'speed' && res.score < MODES.speed.goal) {
+      toast(`일치율 ${res.score.toFixed(1)}% — 90% 이상이어야 성공! 더 섞어 보세요`, 2400);
+      return;
+    }
+    showResult({ ...res, time: mode === 'sec30' ? Math.min(t, MODES.sec30.limit) : t });
   });
   $('clear').addEventListener('click', () => { if (state === 'playing') { clearPalette(); toast('팔레트를 비웠어요', 1200); } });
-  $('again').addEventListener('click', hideResult);
+  $('again').addEventListener('click', openModes);
   $('next').addEventListener('click', () => { hideResult(); newRound(); });
+  $('mode-chip').addEventListener('click', () => { if (state === 'playing') openModes(); });
+  document.querySelectorAll('.mode-card').forEach(b => b.addEventListener('click', () => startMode(b.dataset.mode)));
   $('share').addEventListener('click', async () => {
     if (!lastResult) return;
     const url = location.href.split('#')[0];
-    const text = `🎨 절대 색감 일치율 ${lastResult.score.toFixed(1)}%! 목표 ${target.hex} → 내 색 ${lastResult.hex}\n#절대색감`;
+    const r = lastResult;
+    const head = r.mode === 'speed'
+      ? (r.fail ? '⚡ 절대 색감 스피드 런 도전 실패!' : `⚡ 절대 색감 스피드 런 ${secText(r.time)} (일치율 ${r.score.toFixed(1)}%)`)
+      : `⏱ 절대 색감 30초 챌린지 일치율 ${r.score.toFixed(1)}%!`;
+    const text = `${head} 목표 ${target.hex} → 내 색 ${r.hex}\n#절대색감`;
     try {
       if (navigator.share) { await navigator.share({ title: '절대 색감', text, url }); return; }
     } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -594,7 +700,11 @@
     catch (e) { toast('공유를 지원하지 않는 브라우저예요'); }
   });
   function openHowto() { $('howto').hidden = false; $('howto-close').focus(); }
-  function closeHowto() { $('howto').hidden = true; try { localStorage.setItem(SEEN_KEY, '1'); } catch (e) {} }
+  function closeHowto() {
+    $('howto').hidden = true;
+    try { localStorage.setItem(SEEN_KEY, '1'); } catch (e) {}
+    if (state === 'menu' && $('modes').hidden) openModes();
+  }
   $('howto-btn').addEventListener('click', openHowto);
   $('howto-close').addEventListener('click', closeHowto);
   $('howto').addEventListener('click', e => { if (e.target.id === 'howto') closeHowto(); });
@@ -604,13 +714,17 @@
   // ---------- 시작 ----------
   layout();
   updateBest();
-  newRound();
-  try { if (!localStorage.getItem(SEEN_KEY)) openHowto(); } catch (e) {}
+  updateModeChip();
+  $('timer').textContent = '';
+  let seen = true;
+  try { seen = !!localStorage.getItem(SEEN_KEY); } catch (e) {}
+  if (seen) openModes(); else openHowto();
   requestAnimationFrame(frame);
 
   // 테스트/디버그용 훅
   window.__game = {
-    get target() { return target; }, get tubes() { return tubes.map(t => ({ x: t.x, y: t.y })); }, get palette() { return P; }, lens, judge, recompute, GX, GY, NP, amt, thick,
+    get target() { return target; }, get state() { return state; }, get mode() { return mode; },
+    startMode, setElapsed(ms) { runStart = performance.now() - ms; }, get tubes() { return tubes.map(t => ({ x: t.x, y: t.y })); }, get palette() { return P; }, lens, judge, recompute, GX, GY, NP, amt, thick,
     fillLensWith(parts) {
       const tot = parts.reduce((a, b) => a + b, 0);
       for (const c of judgeCells()) for (let p = 0; p < NP; p++) amt[c * NP + p] = parts[p] / tot * FULL * 2;
