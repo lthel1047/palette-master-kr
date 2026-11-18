@@ -157,7 +157,8 @@ export default {
       if (url.pathname === '/ranking' && request.method === 'GET') {
         const period = url.searchParams.get('period') === 'all' ? 'all' : 'today';
         const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10) || 20));
-        return json(await getRanking(env.DB, period, limit), 200, request, { 'Cache-Control': 'public, max-age=10' });
+        // 등록 직후 바로 최신 순위가 보이도록 캐시하지 않는다
+        return json(await getRanking(env.DB, period, limit), 200, request, { 'Cache-Control': 'no-store' });
       }
       if (url.pathname === '/scores' && request.method === 'POST') return postScore(request, env);
       return json({ error: 'not found' }, 404, request);
