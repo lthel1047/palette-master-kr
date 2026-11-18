@@ -18,3 +18,11 @@
 ## 도메인 설정 (saekgam.cc)
 - Cloudflare DNS: A @ → 185.199.108.153 / 109.153 / 110.153 / 111.153, CNAME www → lthel1047.github.io (모두 DNS only)
 - GitHub Settings → Pages → Custom domain: saekgam.cc, Enforce HTTPS
+
+## 게스트 랭킹 (2026-11-19)
+- 결과 화면에서 닉네임 입력 → 랭킹 등록, 상단 「랭킹」 버튼으로 오늘/전체 보기
+- API: https://api.saekgam.cc (Cloudflare Worker `saekgam-api`, 코드는 `worker/`)
+  - main에 푸시하면 Cloudflare가 `worker/` 폴더를 자동 배포 (Workers Builds, GitHub 연동)
+- DB: Cloudflare D1 `saekgam-ranking` (Asia Pacific)
+  - 이상한 기록 지우기: 대시보드 → D1 → saekgam-ranking → Console
+    `DELETE FROM scores WHERE name = '닉네임';`
