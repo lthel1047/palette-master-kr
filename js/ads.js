@@ -18,8 +18,9 @@
 
   function mountAdsense(slot) {
     const { client, slot: adSlot } = cfg.adsense || {};
-    if (!client || /X{4,}/.test(client)) return false;
-    loadScript(`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`,
+    if (!client || /X{4,}/.test(client) || !adSlot || /^0+$/.test(adSlot)) return false;
+    // index.html <head> 에 이미 있으면 다시 불러오지 않는다
+    if (!document.querySelector('script[src*="adsbygoogle.js"]')) loadScript(`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`,
       { crossorigin: 'anonymous' });
     const ins = document.createElement('ins');
     ins.className = 'adsbygoogle';
