@@ -2,13 +2,14 @@ name = "saekgam-api"
 main = "src/index.js"
 compatibility_date = "2026-11-01"
 
-# 랭킹 저장용 D1. database_id 는 Cloudflare 대시보드에서 만든 DB 의 ID
+# api.saekgam.cc 로 연결 (saekgam.cc 가 같은 Cloudflare 계정에 있어야 함)
+# TOML 규칙상 [[표]] 보다 위에 있어야 최상위 설정으로 읽힌다
+routes = [
+  { pattern = "api.saekgam.cc", custom_domain = true },
+]
+
+# 랭킹 저장용 D1
 [[d1_databases]]
 binding = "DB"
 database_name = "saekgam-ranking"
 database_id = "6c154d22-2305-4e15-8fc0-7ffb00ed885b"
-
-# api.saekgam.cc 로 연결 (saekgam.cc 가 같은 Cloudflare 계정에 있어야 함)
-routes = [
-  { pattern = "api.saekgam.cc", custom_domain = true },
-]
