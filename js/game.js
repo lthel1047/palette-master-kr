@@ -262,7 +262,7 @@
     lastTimerText = '';
   }
   function startMode(m) {
-    mode = m;
+    mode = MODES[m] ? m : 'normal';
     try { localStorage.setItem(MODE_KEY, m); } catch (e) {}
     $('modes').hidden = true;
     hideResult();

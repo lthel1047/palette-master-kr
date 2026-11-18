@@ -38,6 +38,10 @@ jobs:
           mkdir _site
           cp -r index.html css js ads-config.js favicon.svg og.png _site/
           if [ -f ads.txt ]; then cp ads.txt _site/; fi
+          # 배포할 때마다 JS/CSS 주소에 버전을 붙여서, 브라우저가 새 화면과 옛 코드를 섞어 쓰지 않게 한다
+          V="${GITHUB_SHA::7}"
+          sed -i -E "s#(src|href)=\"((js/[^\"]+\.js)|ads-config\.js|css/[^\"]+\.css)\"#\1=\"\2?v=$V\"#g" _site/index.html
+          grep -E "\?v=" _site/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
