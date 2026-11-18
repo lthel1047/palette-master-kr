@@ -54,6 +54,22 @@ for (const [name, viewport, mobile] of [['mobile', { width: 390, height: 844 }, 
   log(name, 'then modes:', await pg.isVisible('#modes'));
   await pg.screenshot({ path: `${out}/${name}-modes.png` });
 
+  // ---- 일반 모드 ----
+  await pg.click('.mode-card[data-mode="normal"]');
+  await pg.waitForTimeout(800);
+  log(name, 'normal timer empty:', JSON.stringify(await pg.textContent('#timer')), '| best:', await pg.textContent('#best'));
+  await pg.evaluate(() => { __game.lens.x = __game.GX / 2; __game.lens.y = __game.GY * 0.55; __game.fillLensWith(__game.target.parts); });
+  await pg.click('#done'); await pg.waitForTimeout(2200);
+  log(name, 'normal result:', await pg.textContent('#result-mode'), '|', await pg.textContent('#score'), '| form hidden:', await pg.isHidden('#rank-form'), '|', await pg.textContent('#rank-msg'), '| buttons:', await pg.textContent('#again'), '/', await pg.textContent('#next'));
+  await pg.screenshot({ path: `${out}/${name}-normal-result.png` });
+  await pg.click('#again');
+  log(name, 'continue mixing → state:', await pg.evaluate(() => __game.state), '| result hidden:', await pg.isHidden('#result'));
+  await pg.click('#done'); await pg.waitForTimeout(300);
+  await pg.click('#next');
+  log(name, 'new problem state:', await pg.evaluate(() => __game.state));
+  await pg.click('#mode-chip');
+  log(name, 'chip opens modes:', await pg.isVisible('#modes'));
+
   // ---- 30초 챌린지 ----
   await pg.click('.mode-card[data-mode="sec30"]');
   await pg.waitForTimeout(1200);
@@ -61,7 +77,7 @@ for (const [name, viewport, mobile] of [['mobile', { width: 390, height: 844 }, 
   await pg.screenshot({ path: `${out}/${name}-sec30-play.png` });
   await pg.evaluate(() => { __game.lens.x = __game.GX / 2; __game.lens.y = __game.GY * 0.55; const q = __game.target.parts.slice(); q[0] += 1; __game.fillLensWith(q); __game.setElapsed(12345); });
   await pg.click('#done'); await pg.waitForTimeout(2200);
-  log(name, 'sec30 result:', await pg.textContent('#result-mode'), '|', await pg.textContent('#score'), '|', await pg.textContent('#sub'), '|', await pg.textContent('#grade'));
+  log(name, 'sec30 result:', await pg.textContent('#result-mode'), '|', await pg.textContent('#score'), '|', await pg.textContent('#sub'), '|', await pg.textContent('#grade'), '| buttons:', await pg.textContent('#again'), '/', await pg.textContent('#next'));
   await pg.fill('#rank-name', name === 'mobile' ? '색감천재' : '데스크톱러');
   await pg.click('#rank-submit'); await pg.waitForTimeout(400);
   log(name, 'sec30 submit:', await pg.textContent('#rank-msg'));

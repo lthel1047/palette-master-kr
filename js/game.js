@@ -25,6 +25,7 @@
   const BEST_KEY = 'jeoldae-saekgam.best2';  // { sec30: 최고 일치율, speed: 최단 시간(ms) }
   const MODE_KEY = 'jeoldae-saekgam.mode';
   const MODES = {
+    normal: { name: '일반', icon: '🎨' },
     sec30: { name: '30초 챌린지', icon: '⏱', limit: 30000 },
     speed: { name: '스피드 런', icon: '⚡', goal: 90, cap: 300000 },
   };
@@ -40,7 +41,7 @@
 
   let target = null;            // { parts, lin, lab, css, hex }
   let state = 'menu';            // menu → playing → result
-  let mode = 'sec30';
+  let mode = 'normal';
   let runStart = 0;
   let bests = {};
   try { bests = JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch (e) {}
@@ -279,6 +280,8 @@
     const M = MODES[mode];
     $('mode-chip').textContent = `${M.icon} ${M.name}`;
     $('timer').classList.toggle('up', mode === 'speed');
+    if (mode === 'normal') $('timer').textContent = '';
+    updateBest();
   }
   function clearPalette() {
     amt.fill(0); thick.fill(0); dirty.fill(1); knife.load.fill(0); needsRender = true;
@@ -338,6 +341,7 @@
     const M = MODES[mode];
     let isNew = false;
     if (!res.fail) {
+      if (mode === 'normal' && res.score > 0 && !(bests.normal >= res.score)) { bests.normal = res.score; isNew = true; }
       if (mode === 'sec30' && res.score > 0 && !(bests.sec30 >= res.score)) { bests.sec30 = res.score; isNew = true; }
       if (mode === 'speed' && !(bests.speed <= res.time)) { bests.speed = Math.round(res.time); isNew = true; }
       if (isNew) { try { localStorage.setItem(BEST_KEY, JSON.stringify(bests)); } catch (e) {} }
@@ -351,7 +355,8 @@
     $('grade').textContent = '';
     $('recipe').textContent = recipeText(target.parts);
     let sub;
-    if (mode === 'sec30') sub = res.timeout ? '⏰ 시간 종료! 그 순간의 색으로 채점했어요' : `⏱ ${secText(res.time)} 만에 완성`;
+    if (mode === 'normal') sub = '';
+    else if (mode === 'sec30') sub = res.timeout ? '⏰ 시간 종료! 그 순간의 색으로 채점했어요' : `⏱ ${secText(res.time)} 만에 완성`;
     else sub = res.fail ? '5분 안에 90%를 넘기지 못했어요' : `일치율 ${res.score.toFixed(1)}%로 성공`;
     $('sub').textContent = sub;
     const ov = $('result'), card = ov.querySelector('.result-card');
@@ -360,7 +365,7 @@
     window.Ads && window.Ads.showResultAd($('result-ad'));
     window.Ranking && window.Ranking.onResult({
       mode, score: res.score, time_ms: Math.round(res.time), target: target.hex, mine: res.hex,
-      ok: !res.fail && (mode === 'speed' || res.score > 0),
+      ok: mode !== 'normal' && !res.fail && (mode === 'speed' || res.score > 0),
     });
     requestAnimationFrame(() => card.classList.add('show'));
     const t0 = performance.now() + 450, dur = 1300;
@@ -376,19 +381,23 @@
       card.classList.add('done');
     };
     revealRaf = requestAnimationFrame(tick);
+    // 일반 모드: 계속 섞기 / 새 문제, 시간 모드: 모드 변경 / 다시 하기
+    $('again').textContent = mode === 'normal' ? '계속 섞기' : '모드 변경';
+    $('next').textContent = mode === 'normal' ? '새 문제' : '다시 하기';
     setTimeout(() => $('next').focus(), 50);
   }
   function hideResult() { $('result').hidden = true; }
+  function continueMixing() { hideResult(); state = 'playing'; }
   function updateBest() {
-    const a = bests.sec30 != null ? `30초 ${bests.sec30.toFixed(1)}%` : null;
-    const b = bests.speed != null ? `스피드 ${secText(bests.speed)}` : null;
-    $('best').textContent = a || b ? `내 최고 · ${[a, b].filter(Boolean).join(' · ')}` : '내 최고 기록 —';
+    const v = bests[mode];
+    const text = v == null ? '—' : mode === 'speed' ? secText(v) : `${v.toFixed(1)}%`;
+    $('best').textContent = `${MODES[mode].icon} 내 최고 ${text}`;
   }
 
   // ---------- 타이머 ----------
   let lastTimerText = '';
   function tickTimer() {
-    if (state !== 'playing') return;
+    if (state !== 'playing' || mode === 'normal') return;
     const t = elapsed();
     let text;
     if (mode === 'sec30') {
@@ -629,6 +638,7 @@
   window.addEventListener('keydown', e => {
     if (!$('ranking').hidden) return;
     if (!$('howto').hidden) { if (e.key === 'Escape') closeHowto(); return; }
+    if (state === 'result' && mode === 'normal' && e.key === 'Escape') { continueMixing(); return; }
     if (state !== 'playing') return;
     const m = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (m) { lens.x += m[0]; lens.y += m[1]; clampLens(); needsRender = true; e.preventDefault(); }
@@ -681,7 +691,7 @@
     showResult({ ...res, time: mode === 'sec30' ? Math.min(t, MODES.sec30.limit) : t });
   });
   $('clear').addEventListener('click', () => { if (state === 'playing') { clearPalette(); toast('팔레트를 비웠어요', 1200); } });
-  $('again').addEventListener('click', openModes);
+  $('again').addEventListener('click', () => (mode === 'normal' ? continueMixing() : openModes()));
   $('next').addEventListener('click', () => { hideResult(); newRound(); });
   $('mode-chip').addEventListener('click', () => { if (state === 'playing') openModes(); });
   document.querySelectorAll('.mode-card').forEach(b => b.addEventListener('click', () => startMode(b.dataset.mode)));
@@ -689,7 +699,7 @@
     if (!lastResult) return;
     const url = location.href.split('#')[0];
     const r = lastResult;
-    const head = r.mode === 'speed'
+    const head = r.mode === 'normal' ? `🎨 절대 색감 일치율 ${r.score.toFixed(1)}%!` : r.mode === 'speed'
       ? (r.fail ? '⚡ 절대 색감 스피드 런 도전 실패!' : `⚡ 절대 색감 스피드 런 ${secText(r.time)} (일치율 ${r.score.toFixed(1)}%)`)
       : `⏱ 절대 색감 30초 챌린지 일치율 ${r.score.toFixed(1)}%!`;
     const text = `${head} 목표 ${target.hex} → 내 색 ${r.hex}\n#절대색감`;

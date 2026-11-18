@@ -45,9 +45,9 @@
   // ---------- 결과 화면 ----------
   function onResult(r) {
     current = { ...r, submitted: false };
-    mode = r.mode;
+    if (r.mode !== 'normal') mode = r.mode;
     $('rank-form').hidden = !r.ok;
-    if (!r.ok) { setMsg(''); return; }
+    if (!r.ok) { setMsg(r.mode === 'normal' ? '랭킹은 ⏱ 30초 챌린지와 ⚡ 스피드 런에서 겨룰 수 있어요' : ''); return; }
     const input = $('rank-name'), btn = $('rank-submit');
     input.value = myName;
     input.disabled = false; btn.disabled = false;
