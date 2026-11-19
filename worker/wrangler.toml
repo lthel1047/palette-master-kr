@@ -13,3 +13,16 @@ routes = [
 binding = "DB"
 database_name = "saekgam-ranking"
 database_id = "6c154d22-2305-4e15-8fc0-7ffb00ed885b"
+
+# ---------- 테스트 서버 (dev 브랜치) ----------
+# npx wrangler deploy --env staging  →  api-staging.saekgam.cc, 테스트 전용 DB
+[env.staging]
+name = "saekgam-api-staging"
+routes = [
+  { pattern = "api-staging.saekgam.cc", custom_domain = true },
+]
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "saekgam-ranking-staging"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
