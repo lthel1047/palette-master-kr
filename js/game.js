@@ -37,6 +37,7 @@ import { createScene } from './scene3d.js';
     speed: { name: '스피드 런', icon: '⚡', goal: 90, cap: 300000 },
   };
   const SEEN_KEY = 'jeoldae-saekgam.howto';
+  const NEWS_KEY = 'jeoldae-saekgam.news', NEWS_VER = '2026-11-19';   // 업데이트 소식을 새로 쓰면 날짜를 바꾼다
 
   // ---------- 상태 ----------
   const amt = new Float32Array(N * NP);   // 칸별 물감 양
@@ -591,6 +592,7 @@ import { createScene } from './scene3d.js';
 
   window.addEventListener('keydown', e => {
     if (!$('ranking').hidden) return;
+    if (!$('news').hidden) { if (e.key === 'Escape') closeNews(); return; }
     if (!$('howto').hidden) { if (e.key === 'Escape') closeHowto(); return; }
     if (state === 'result' && mode === 'normal' && e.key === 'Escape') { continueMixing(); return; }
     if (state !== 'playing') return;
@@ -722,12 +724,21 @@ import { createScene } from './scene3d.js';
   function openHowto() { $('howto').hidden = false; $('howto-close').focus(); }
   function closeHowto() {
     $('howto').hidden = true;
-    try { localStorage.setItem(SEEN_KEY, '1'); } catch (e) {}
+    try { localStorage.setItem(SEEN_KEY, '1'); localStorage.setItem(NEWS_KEY, NEWS_VER); } catch (e) {}
     if (state === 'menu' && $('modes').hidden) openModes();
   }
   $('howto-btn').addEventListener('click', openHowto);
   $('howto-close').addEventListener('click', closeHowto);
   $('howto').addEventListener('click', e => { if (e.target.id === 'howto') closeHowto(); });
+  function openNews() { $('news').hidden = false; $('news-close').focus(); }
+  function closeNews() {
+    $('news').hidden = true;
+    try { localStorage.setItem(NEWS_KEY, NEWS_VER); } catch (e) {}
+    if (state === 'menu' && $('modes').hidden && $('howto').hidden) openModes();
+  }
+  $('news-open').addEventListener('click', openNews);
+  $('news-close').addEventListener('click', closeNews);
+  $('news').addEventListener('click', e => { if (e.target.id === 'news') closeNews(); });
 
   window.addEventListener('resize', layout);
 
@@ -738,7 +749,10 @@ import { createScene } from './scene3d.js';
   $('timer').textContent = '';
   let seen = true;
   try { seen = !!localStorage.getItem(SEEN_KEY); } catch (e) {}
-  if (seen) openModes(); else openHowto();
+  let newsSeen = false;
+  try { newsSeen = localStorage.getItem(NEWS_KEY) === NEWS_VER; } catch (e) {}
+  // 처음 온 사람은 게임 방법, 전에 해 본 사람은 새 업데이트 소식을 한 번 보여 준다
+  if (!seen) openHowto(); else if (!newsSeen) openNews(); else openModes();
   requestAnimationFrame(frame);
 
   // 테스트/디버그용 훅

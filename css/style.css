@@ -159,12 +159,16 @@ button { font-family: inherit; cursor: pointer; }
 .ad-slot ins { display: block; width: 100%; }
 
 /* 게임 방법 */
-.howto-card { text-align: left; line-height: 1.55; font-size: 14.5px; }
+.howto-card { text-align: left; line-height: 1.55; font-size: 14.5px; word-break: keep-all; }
 .howto-card h2 { margin: 0 0 8px; font-size: 20px; }
 .howto-card h3 { margin: 14px 0 4px; font-size: 15px; }
 .howto-card ul { margin: 0; padding-left: 18px; }
 .howto-card li { margin: 3px 0; }
 .howto-card .btn { width: 100%; margin-top: 16px; }
+#news { z-index: 11; }
+#news .howto-card { max-height: 86vh; overflow-y: auto; }
+.news-date { margin: -4px 0 6px; color: #888; font-size: 13px; }
+#howto .fb-link { display: block; margin: 10px auto 0; }
 
 @media (min-width: 900px) {
   .brand h1 { font-size: 22px; }
