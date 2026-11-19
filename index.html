@@ -76,6 +76,7 @@
         <button id="next" class="btn primary" type="button">다시 하기</button>
         <button id="share" class="btn ghost" type="button">공유</button>
       </div>
+      <button id="fb-open" class="fb-link" type="button">💬 의견·댓글 남기기</button>
       <div id="result-ad" class="ad-slot" aria-label="광고"></div>
     </div>
   </div>
@@ -98,6 +99,27 @@
       <p id="ranking-rule" class="ranking-rule"></p>
       <ol id="ranking-list" class="ranking-list"></ol>
       <p class="ranking-note">닉네임별 최고 기록 · 매일 0시(한국 시간)에 오늘 랭킹이 새로 시작돼요</p>
+    </div>
+  </div>
+
+  <!-- 의견·댓글 -->
+  <div id="feedback" class="overlay" hidden>
+    <div class="fb-card" role="dialog" aria-modal="true" aria-labelledby="fb-title">
+      <div class="ranking-head">
+        <h2 id="fb-title">의견·댓글 <small id="fb-count" class="fb-count"></small></h2>
+        <button id="fb-close" class="round-btn small" type="button" aria-label="닫기">✕</button>
+      </div>
+      <form id="fb-form" class="fb-form" autocomplete="off">
+        <textarea id="fb-body" maxlength="300" rows="3" placeholder="재밌었던 점, 어려웠던 점, 바라는 점을 자유롭게 남겨 주세요 (링크는 안 돼요)" aria-label="댓글 내용"></textarea>
+        <div class="fb-row">
+          <input id="fb-name" type="text" maxlength="12" placeholder="닉네임 (비우면 게스트)" aria-label="닉네임">
+          <span id="fb-len" class="fb-len">0/300</span>
+          <button id="fb-submit" class="btn primary" type="submit">남기기</button>
+        </div>
+        <p id="fb-msg" class="rank-msg" aria-live="polite"></p>
+      </form>
+      <ol id="fb-list" class="fb-list"></ol>
+      <p class="ranking-note">남긴 글은 다른 사람에게도 보여요. 욕설·광고는 지워질 수 있어요.</p>
     </div>
   </div>
 
@@ -150,6 +172,7 @@
   <script src="js/color.js"></script>
   <script src="js/ads.js"></script>
   <script src="js/ranking.js"></script>
+  <script src="js/feedback.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

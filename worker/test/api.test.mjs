@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { DatabaseSync } from 'node:sqlite';
-import worker, { cleanName, validate, kstDay } from '../src/index.js';
+import worker, { cleanName, validate, validateFeedback, kstDay } from '../src/index.js';
 
 function fakeD1() {
   const db = new DatabaseSync(':memory:');
@@ -99,4 +99,27 @@ test('잘못된 입력은 400, 옛 주소는 404, CORS 헤더 포함', async () 
   const o = await worker.fetch(new Request('https://api.saekgam.cc/runs', { method: 'OPTIONS', headers: { Origin: 'http://localhost:5173' } }), env);
   assert.strictEqual(o.status, 204);
   assert.strictEqual(o.headers.get('Access-Control-Allow-Origin'), 'http://localhost:5173');
+});
+
+test('댓글 검증', () => {
+  assert.ok(validateFeedback({ body: 'a' }).error, '너무 짧음');
+  assert.ok(validateFeedback({ body: '가'.repeat(301) }).error, '너무 김');
+  assert.ok(validateFeedback({ body: '여기 와보세요 https://spam.example' }).error, '링크 금지');
+  assert.ok(validateFeedback({ body: 'spam.com 가세요' }).error, '도메인 금지');
+  assert.strictEqual(validateFeedback({ body: '  재밌어요!  ' }).value.name, '게스트');
+  assert.strictEqual(validateFeedback({ body: '재밌어요\n\n\n\n좋아요', name: '철수' }).value.body, '재밌어요\n\n좋아요');
+});
+
+test('댓글 남기기 → 최신순 목록, 숨김 제외, 도배 방지', async () => {
+  let r = await call('POST', '/feedback', { name: '철수', body: '첫 댓글이에요' }, '7.7.7.1');
+  assert.strictEqual(r.status, 201, JSON.stringify(r.body));
+  r = await call('POST', '/feedback', { body: '스피드런 너무 어려워요' }, '7.7.7.2');
+  assert.strictEqual(r.body.item.name, '게스트');
+  const again = await call('POST', '/feedback', { body: '또 남김' }, '7.7.7.2');
+  assert.strictEqual(again.status, 429);
+  env.DB.raw.exec("UPDATE feedback SET hidden = 1 WHERE body = '첫 댓글이에요'");
+  const g = await call('GET', '/feedback');
+  assert.deepStrictEqual(g.body.items.map(i => i.body), ['스피드런 너무 어려워요']);
+  assert.strictEqual(g.body.total, 1);
+  assert.ok(!('ip' in g.body.items[0]), 'IP는 내보내지 않음');
 });

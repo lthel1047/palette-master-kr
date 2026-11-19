@@ -3,6 +3,8 @@
  *
  *   GET  /ranking?mode=sec30|speed&period=today|all&limit=20   랭킹 조회 (닉네임별 최고 기록)
  *   POST /runs  { mode, name, score, time_ms, target, mine }    기록 등록
+ *   GET  /feedback?limit=30                                      최근 댓글 (숨김 처리된 것 제외)
+ *   POST /feedback  { name?, body }                              댓글 남기기 (2~300자, 링크 금지)
  *   GET  /health
  *
  * 게스트 랭킹이라 로그인은 없다. 대신 입력값 검증과 IP 기준 도배 방지를 한다.
@@ -33,7 +35,21 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS idx_runs_mode_day ON runs(mode, day, name)',
   'CREATE INDEX IF NOT EXISTS idx_runs_mode_name ON runs(mode, name)',
   'CREATE INDEX IF NOT EXISTS idx_runs_ip ON runs(ip, created_at)',
+  `CREATE TABLE IF NOT EXISTS feedback (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     name TEXT NOT NULL,
+     body TEXT NOT NULL,
+     day TEXT NOT NULL,
+     ip TEXT NOT NULL,
+     hidden INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL
+   )`,
+  'CREATE INDEX IF NOT EXISTS idx_feedback_list ON feedback(hidden, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_feedback_ip ON feedback(ip, created_at)',
 ];
+const FB_MIN = 2, FB_MAX = 300;
+const FB_GAP_MS = 20000;         // 같은 IP는 20초에 한 번
+const FB_DAILY_CAP = 30;         // 같은 IP는 하루 30개까지
 let schemaReady = false;
 async function ensureSchema(db) {
   if (schemaReady) return;
@@ -90,6 +106,46 @@ export function validate(body) {
       mine: body.mine.toUpperCase(),
     },
   };
+}
+
+/** 댓글 검증: 2~300자, 링크 금지(스팸 방지), 닉네임은 없으면 '게스트' */
+export function validateFeedback(body) {
+  if (!body || typeof body !== 'object') return { error: '잘못된 요청이에요' };
+  if (typeof body.body !== 'string') return { error: '내용을 적어 주세요' };
+  const text = body.body.normalize('NFC').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  const len = [...text].length;
+  if (len < FB_MIN) return { error: `${FB_MIN}자 이상 적어 주세요` };
+  if (len > FB_MAX) return { error: `${FB_MAX}자까지 적을 수 있어요` };
+  if (/(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|kr|io|co|me|xyz|cc|ly|gg)\b)/i.test(text)) return { error: '링크는 남길 수 없어요' };
+  const name = body.name ? cleanName(body.name) : '게스트';
+  if (!name) return { error: `닉네임은 ${NAME_MIN}~${NAME_MAX}자로 적어 주세요` };
+  return { value: { name, body: text } };
+}
+
+async function getFeedback(db, limit) {
+  const { results } = await db.prepare(
+    `SELECT id, name, body, created_at FROM feedback WHERE hidden = 0 ORDER BY created_at DESC LIMIT ${limit}`
+  ).all();
+  const total = await db.prepare('SELECT COUNT(*) AS n FROM feedback WHERE hidden = 0').first();
+  return { items: results, total: total?.n || 0 };
+}
+
+async function postFeedback(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: '잘못된 요청이에요' }, 400, request); }
+  const v = validateFeedback(body);
+  if (v.error) return json({ error: v.error }, 400, request);
+  const db = env.DB, now = Date.now(), day = kstDay(now);
+  const ip = await hashIp(request.headers.get('CF-Connecting-IP') || 'unknown', env.IP_SALT || 'saekgam');
+  const recent = await db.prepare(
+    'SELECT MAX(created_at) AS last, SUM(CASE WHEN day = ?2 THEN 1 ELSE 0 END) AS today FROM feedback WHERE ip = ?1'
+  ).bind(ip, day).first();
+  if (recent?.last && now - recent.last < FB_GAP_MS) return json({ error: '잠시 후 다시 남겨 주세요' }, 429, request);
+  if ((recent?.today || 0) >= FB_DAILY_CAP) return json({ error: '오늘은 더 남길 수 없어요' }, 429, request);
+  const r = await db.prepare(
+    'INSERT INTO feedback (name, body, day, ip, created_at) VALUES (?1, ?2, ?3, ?4, ?5)'
+  ).bind(v.value.name, v.value.body, day, ip, now).run();
+  return json({ ok: true, item: { id: r?.meta?.last_row_id ?? null, ...v.value, created_at: now } }, 201, request);
 }
 
 async function hashIp(ip, salt) {
@@ -188,6 +244,11 @@ export default {
         return json(await getRanking(env.DB, mode, period, limit), 200, request, { 'Cache-Control': 'no-store' });
       }
       if (url.pathname === '/runs' && request.method === 'POST') return postRun(request, env);
+      if (url.pathname === '/feedback' && request.method === 'GET') {
+        const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') || '30', 10) || 30));
+        return json(await getFeedback(env.DB, limit), 200, request, { 'Cache-Control': 'no-store' });
+      }
+      if (url.pathname === '/feedback' && request.method === 'POST') return postFeedback(request, env);
       return json({ error: 'not found' }, 404, request);
     } catch (e) {
       return json({ error: '서버 오류가 났어요', ...(env.DEBUG ? { detail: String(e && e.stack || e) } : {}) }, 500, request);

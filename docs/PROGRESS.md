@@ -31,3 +31,9 @@
 - 일반 모드와 일반 랭킹을 없애고 ⏱ 30초 챌린지 / ⚡ 스피드 런 두 모드로 나눔
 - DB 표: `runs` (mode, name, score, time_ms, ...). 예전 `scores` 표는 쓰지 않음
 - 일반 모드 다시 추가: 🎨 일반(시간 제한 없음, 계속 섞기 가능, 랭킹 없음) + ⏱ 30초 챌린지 + ⚡ 스피드 런
+
+## 의견·댓글 (2026-11-19)
+- 결과 화면 「💬 의견·댓글 남기기」 → 모두에게 보이는 방명록. 2~300자, 링크 금지, 같은 IP 20초에 1개·하루 30개
+- API: `GET /feedback`, `POST /feedback {name?, body}` / DB 표: `feedback`
+- 댓글 숨기기(지우지 않고 안 보이게): D1 Console에서 `UPDATE feedback SET hidden = 1 WHERE id = 번호;`
+- 전체 보기: `SELECT id, name, body, datetime(created_at/1000, 'unixepoch', '+9 hours') FROM feedback ORDER BY id DESC;`
