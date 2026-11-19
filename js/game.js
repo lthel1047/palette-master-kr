@@ -368,7 +368,7 @@ import { createScene } from './scene3d.js';
   function showResult(res) {
     if (drag) { if (drag.mode === 'knife') knifeRelease(); drag = null; }
     state = 'result';
-    lastResult = { ...res, mode };
+    lastResult = { ...res, mode, target: { hex: target.hex, css: target.css, light: target.lab[0] > 72 } };
     const M = MODES[mode];
     let isNew = false;
     if (!res.fail) {
@@ -649,19 +649,75 @@ import { createScene } from './scene3d.js';
   $('next').addEventListener('click', () => { hideResult(); newRound(); });
   $('mode-chip').addEventListener('click', () => { if (state === 'playing') openModes(); });
   document.querySelectorAll('.mode-card').forEach(b => b.addEventListener('click', () => startMode(b.dataset.mode)));
-  $('share').addEventListener('click', async () => {
-    if (!lastResult) return;
-    const url = location.href.split('#')[0];
-    const r = lastResult;
-    const head = r.mode === 'normal' ? `🎨 절대 색감 일치율 ${r.score.toFixed(1)}%!` : r.mode === 'speed'
+  // ---------- 공유: 결과 카드 이미지 ----------
+  function shareHead(r) {
+    return r.mode === 'normal' ? `🎨 절대 색감 일치율 ${r.score.toFixed(1)}%!` : r.mode === 'speed'
       ? (r.fail ? '⚡ 절대 색감 스피드 런 도전 실패!' : `⚡ 절대 색감 스피드 런 ${secText(r.time)} (일치율 ${r.score.toFixed(1)}%)`)
       : `⏱ 절대 색감 30초 챌린지 일치율 ${r.score.toFixed(1)}%!`;
-    const text = `${head} 목표 ${target.hex} → 내 색 ${r.hex}\n#절대색감`;
+  }
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  /** 결과 카드(1080×1350) PNG Blob: 목표 색 · 내 색 · 일치율 */
+  function makeShareImage(r) {
+    const W = 1080, H = 1350, cv2 = document.createElement('canvas'); cv2.width = W; cv2.height = H;
+    const g = cv2.getContext('2d'), F = getComputedStyle(document.documentElement).getPropertyValue('--font') || 'sans-serif';
+    const font = (wt, px) => `${wt} ${px}px ${F}`;
+    g.fillStyle = '#f2f1ee'; g.fillRect(0, 0, W, H);
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#222'; g.font = font(900, 64); g.fillText('절대 색감', W / 2, 120);
+    const M = MODES[r.mode];
+    g.fillStyle = '#666'; g.font = font(700, 36); g.fillText(`${M.icon} ${M.name}`, W / 2, 180);
+    // 두 색 견본
+    const sw = 420, sh = 470, gap = 60, sy = 240, lx = (W - sw * 2 - gap) / 2;
+    const swatch = (x, css, label, hex) => {
+      g.save(); g.shadowColor = 'rgba(0,0,0,.18)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
+      roundRect(g, x, sy, sw, sh, 28); g.fillStyle = css; g.fill(); g.restore();
+      g.fillStyle = '#555'; g.font = font(700, 38); g.fillText(label, x + sw / 2, sy + sh + 66);
+      g.fillStyle = '#222'; g.font = `600 40px ui-monospace, SFMono-Regular, Menlo, monospace`; g.fillText(hex, x + sw / 2, sy + sh + 118);
+    };
+    swatch(lx, r.target.css, '목표', r.target.hex);
+    swatch(lx + sw + gap, r.css, '내 색', r.hex);
+    // 일치율 / 기록
+    const big = r.mode === 'speed' ? (r.fail ? '실패' : `⚡ ${secText(r.time)}`) : `${r.score.toFixed(1)}%`;
+    g.fillStyle = '#111'; g.font = font(900, 150); g.fillText(big, W / 2, 1035);
+    g.fillStyle = '#555'; g.font = font(700, 42);
+    g.fillText(r.mode === 'speed' ? (r.fail ? '5분 안에 90%를 넘기지 못했어요' : `일치율 ${r.score.toFixed(1)}%로 성공`) : '일치율', W / 2, 1100);
+    const grade = ($('grade').textContent || '').replace('내 최고 기록', '').trim();
+    if (grade) { g.fillStyle = '#333'; g.font = font(800, 44); g.fillText(grade, W / 2, 1170); }
+    g.fillStyle = '#8a8a90'; g.font = font(700, 36); g.fillText('saekgam.cc 에서 도전해 보세요', W / 2, 1290);
+    return new Promise(res => cv2.toBlob(res, 'image/png'));
+  }
+  $('share').addEventListener('click', async () => {
+    if (!lastResult) return;
+    const url = location.href.split('#')[0].split('?')[0];
+    const r = lastResult;
+    const text = `${shareHead(r)} 목표 ${r.target.hex} → 내 색 ${r.hex}\n#절대색감`;
+    let blob = null;
+    try { blob = await makeShareImage(r); } catch (e) {}
+    const file = blob && new File([blob], `절대색감-${r.score.toFixed(0)}.png`, { type: 'image/png' });
+    // 1) 휴대폰: 이미지 + 문구 + 링크를 함께 공유
     try {
-      if (navigator.share) { await navigator.share({ title: '절대 색감', text, url }); return; }
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: '절대 색감', text: `${text}\n${url}` }); return;
+      }
+      if (navigator.share && !file) { await navigator.share({ title: '절대 색감', text, url }); return; }
     } catch (e) { if (e && e.name === 'AbortError') return; }
-    try { await navigator.clipboard.writeText(`${text}\n${url}`); toast('결과를 복사했어요. 붙여넣어 공유하세요!'); }
-    catch (e) { toast('공유를 지원하지 않는 브라우저예요'); }
+    // 2) PC 등: 이미지를 클립보드에 복사(안 되면 저장) + 문구 복사
+    let how = '';
+    if (blob) {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); how = 'img'; }
+      catch (e) {
+        try {
+          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name;
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); how = 'save';
+        } catch (e2) {}
+      }
+    }
+    if (how === 'img') { toast('결과 이미지를 복사했어요. 채팅창에 붙여넣어 공유하세요!', 2800); return; }
+    try { await navigator.clipboard.writeText(`${text}\n${url}`); toast(how === 'save' ? '결과 이미지를 저장하고 문구를 복사했어요!' : '결과를 복사했어요. 붙여넣어 공유하세요!', 2800); }
+    catch (e) { toast(how === 'save' ? '결과 이미지를 저장했어요!' : '공유를 지원하지 않는 브라우저예요'); }
   });
   function openHowto() { $('howto').hidden = false; $('howto-close').focus(); }
   function closeHowto() {
@@ -704,6 +760,7 @@ import { createScene } from './scene3d.js';
       }
       return { stay: inside / all, visible: vis, maxT };
     },
+    shareImage() { return lastResult ? makeShareImage(lastResult).then(b => b.arrayBuffer()).then(a => Array.from(new Uint8Array(a))) : null; },
     knifeStroke(pts) {
       knife.x = knife.px = pts[0][0]; knife.y = knife.py = pts[0][1]; knifeStep(pts[0][0], pts[0][1]);
       for (const [x, y] of pts.slice(1)) knifeTo(x, y);
