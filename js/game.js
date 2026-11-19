@@ -20,7 +20,8 @@ import { createScene } from './scene3d.js';
   const FILM = 0.14;            // 헤라로 펴 바른 물감 막의 두께 (항상 불투명하게 보이는 두께)
   const SQUEEZE_RATE = 12;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
   const BLOB_R = 2.9;           // 짜낸 물감 방울 반지름 (칸)
-  const KNIFE_R = 5.0;          // 헤라 반지름 (칸)
+  const KNIFE_R = 6.5;          // 헤라 반지름 (칸)
+  const MIX = 0.5;              // 헤라 아래 물감끼리 한 걸음마다 섞이는 정도 (0~1)
   const PICK = 0.42, DROP = 0.45;  // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
   const LENS_R = 11;            // 돋보기 테 반지름 (칸)
   const JUDGE_R = LENS_R - 1.2; // 판정 범위 = 테 안쪽
@@ -207,6 +208,26 @@ import { createScene } from './scene3d.js';
     for (const c of cells) {
       let s = 0; for (let p = 0; p < NP; p++) { if (amt[c * NP + p] < 1e-7) amt[c * NP + p] = 0; s += amt[c * NP + p]; }
       thick[c] = s; dirty[c] = 1;
+    }
+    // 3) 헤라 날 아래 물감끼리 직접 섞는다: 각 칸의 성분을 헤라 아래 평균 성분 쪽으로 당긴다.
+    //    가중 평균을 쓰므로 물감 총량은 그대로 보존된다.
+    {
+      const mavg = new Float64Array(NP); let mt = 0;
+      const mc = new Float32Array(cells.length);
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i]; if (thick[c] < COV1) continue;
+        mc[i] = MIX * Math.min(1, ws[i] * 1.6);
+        mt += mc[i] * thick[c];
+        for (let p = 0; p < NP; p++) mavg[p] += mc[i] * amt[c * NP + p];
+      }
+      if (mt > 1e-6) {
+        for (let p = 0; p < NP; p++) mavg[p] /= mt;
+        for (let i = 0; i < cells.length; i++) {
+          if (!mc[i]) continue;
+          const c = cells[i], t = thick[c], m = mc[i];
+          for (let p = 0; p < NP; p++) amt[c * NP + p] += m * (t * mavg[p] - amt[c * NP + p]);
+        }
+      }
     }
     needsRender = needsPaint = true;
   }
@@ -687,6 +708,24 @@ import { createScene } from './scene3d.js';
     /** 테스트용: 튜브 i 의 화면 좌표(클라이언트), 격자 좌표 → 화면 좌표 */
     tubeClient(i) { const r = cv.getBoundingClientRect(), [x, y] = S3.tubeScreen(i); return [r.left + x, r.top + y]; },
     gridClient(gx, gy) { const r = cv.getBoundingClientRect(), [x, y] = S3.project(gx, gy); return [r.left + x, r.top + y]; }, lens, judge, recompute, GX, GY, NP, amt, thick,
+    // 테스트용: 격자 좌표로 물감 짜기 / 헤라 긋기 / 섞임 정도 재기
+    squeezeAt(gx, gy, pigment, amount) { deposit(gx, gy, pigment, amount); },
+    knifeStroke(pts) {
+      knife.x = knife.px = pts[0][0]; knife.y = knife.py = pts[0][1]; knifeStep(pts[0][0], pts[0][1]);
+      for (const [x, y] of pts.slice(1)) knifeTo(x, y);
+      knifeRelease(); needsRender = true;
+    },
+    mixStats(x0, y0, x1, y1) {
+      const labs = [], lab = [0, 0, 0], rgb = [0, 0, 0];
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const c = y * GX + x; if (thick[c] < COV1) continue;
+        cellColor(c); CE.linToLab([col[c * 3], col[c * 3 + 1], col[c * 3 + 2]], lab); labs.push(lab.slice());
+      }
+      if (!labs.length) return null;
+      const m = [0, 1, 2].map(k => labs.reduce((a, l) => a + l[k], 0) / labs.length);
+      const de = labs.map(l => CE.deltaE2000(...l, ...m)).sort((a, b) => a - b);
+      return { cells: labs.length, meanDE: de.reduce((a, b) => a + b, 0) / de.length, p90: de[Math.floor(de.length * 0.9)], total: thick.reduce((a, b) => a + b, 0) };
+    },
     fillAll(parts, t = 0.3) {
       const tot = parts.reduce((a, b) => a + b, 0);
       for (let c = 0; c < N; c++) for (let p = 0; p < NP; p++) amt[c * NP + p] = parts[p] / tot * t;
