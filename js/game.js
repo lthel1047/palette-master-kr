@@ -204,6 +204,7 @@ import { createScene } from './scene3d.js';
     const steps = Math.max(1, Math.ceil(dist / 0.7));
     for (let i = 1; i <= steps; i++) knifeStep(knife.x + dx * i / steps, knife.y + dy * i / steps);
     knife.px = knife.x; knife.py = knife.y; knife.x = gx; knife.y = gy;
+    knife.moved = (knife.moved || 0) + dist;
   }
   function knifeRelease() {
     // 헤라에 남은 물감은 마지막 위치에 모두 내려놓는다 (물감이 사라지지 않게)
@@ -400,6 +401,7 @@ import { createScene } from './scene3d.js';
       ok: mode !== 'normal' && !res.fail && (mode === 'speed' || res.score > 0),
     });
     requestAnimationFrame(() => card.classList.add('show'));
+    SND() && SND().result(res.score, !res.fail);
     const t0 = performance.now() + 450, dur = 1300;
     cancelAnimationFrame(revealRaf);
     const tick = now => {
@@ -543,7 +545,9 @@ import { createScene } from './scene3d.js';
 
   // ---------- 입력 ----------
   const LENS_PICK_H = 0.42;           // 돋보기는 팔레트 위에 떠 있으니 그 높이에서 잡는다
+  const SND = () => window.Sound;
   function onDown(e) {
+    SND() && SND().unlock();
     if (state !== 'playing' || drag || !S3) return;
     const touch = e.pointerType !== 'mouse';
     const at = S3.pick(e.clientX, e.clientY), atLens = S3.pick(e.clientX, e.clientY, LENS_PICK_H);
@@ -552,6 +556,7 @@ import { createScene } from './scene3d.js';
     const tube = S3.pickTube(e.clientX, e.clientY);
     if (tube >= 0) {
       // 집자마자 바닥에 찍히지 않게 처음엔 빠르게 움직이는 것으로 본다
+      SND() && SND().tick();
       drag = { id: e.pointerId, mode: 'tube', tube, gx: at.gx, gy: at.gy, cx: e.clientX, cy: e.clientY, sx: e.clientX, sy: e.clientY, touch, last: null, speed: 600 };
     } else if (atLens && hitLens(atLens.gx, atLens.gy)) {
       drag = { id: e.pointerId, mode: 'lens', ox: lens.x - atLens.gx, oy: lens.y - atLens.gy };
@@ -625,10 +630,23 @@ import { createScene } from './scene3d.js';
         }
         if (!drag.squeezed) deposit(gx, gy, drag.tube, MIN_DAB);
         drag.squeezed = true;
-      }
+        SND() && SND().squeeze(flow);
+      } else SND() && SND().squeeze(0);
       drag.last = [gx, gy];
       needsRender = true;
     }
+    if (!drag || drag.mode !== 'tube') SND() && SND().squeeze(0);
+    // 헤라 소리: 움직인 거리/시간 = 속도, 날 아래 물감 두께 = 촉촉함
+    if (drag && drag.mode === 'knife') {
+      const v = (knife.moved || 0) / Math.max(dt, 1e-3); knife.moved = 0;
+      knife.sv = (knife.sv || 0) + (v - (knife.sv || 0)) * (1 - Math.exp(-dt / 0.06));
+      let w = 0, n = 0;
+      for (let oy = -3; oy <= 3; oy += 3) for (let ox = -3; ox <= 3; ox += 3) {
+        const x = Math.round(knife.x + ox), y = Math.round(knife.y + oy);
+        if (inPalette(x, y)) { w += thick[y * GX + x]; n++; }
+      }
+      SND() && SND().knife(Math.min(1, knife.sv / 70), Math.min(1, (n ? w / n : 0) / 0.12));
+    } else if (knife.sv) { knife.sv = 0; SND() && SND().knife(0, 0); }
     tickTimer();
     if (needsRender) render();
     requestAnimationFrame(frame);
@@ -728,6 +746,13 @@ import { createScene } from './scene3d.js';
     if (state === 'menu' && $('modes').hidden) openModes();
   }
   $('howto-btn').addEventListener('click', openHowto);
+  // 소리 켜기/끄기
+  function syncSoundBtn() {
+    const m = !SND() || SND().muted, b = $('sound-btn');
+    b.textContent = m ? '🔇' : '🔊'; b.setAttribute('aria-label', m ? '소리 켜기' : '소리 끄기'); b.title = b.getAttribute('aria-label');
+  }
+  $('sound-btn').addEventListener('click', () => { if (!SND()) return; SND().unlock(); SND().setMuted(!SND().muted); syncSoundBtn(); });
+  syncSoundBtn();
   $('howto-close').addEventListener('click', closeHowto);
   $('howto').addEventListener('click', e => { if (e.target.id === 'howto') closeHowto(); });
   function openNews() { $('news').hidden = false; $('news-close').focus(); }
