@@ -17,7 +17,7 @@ const server = http.createServer((req, res) => {
 }).listen(0);
 const url = `http://127.0.0.1:${server.address().port}/`;
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const errors = [];
 async function run(name, viewport, isMobile) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 2, isMobile, hasTouch: isMobile });

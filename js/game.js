@@ -1,8 +1,12 @@
 /*
- * 절대 색감 — 게임 로직 (2D Canvas, 외부 라이브러리 없음)
+ * 절대 색감 — 게임 로직
  * 팔레트를 격자로 나눠 칸마다 물감 8종의 양을 저장하고,
  * 칸의 색은 color.js 의 분광 Kubelka-Munk 혼합으로 계산한다.
+ * 화면은 scene3d.js(three.js) 가 3D 로 그린다.
  */
+import { DataUtils } from 'three';
+import { createScene } from './scene3d.js';
+
 (() => {
   'use strict';
   const CE = window.ColorEngine;
@@ -18,12 +22,11 @@
   const BLOB_R = 2.9;           // 짜낸 물감 방울 반지름 (칸)
   const KNIFE_R = 5.0;          // 헤라 반지름 (칸)
   const PICK = 0.42, DROP = 0.45;  // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
-  const LENS_R = 15;            // 돋보기 렌즈 반지름 (칸)
-  const ZOOM = 1.6;             // 돋보기 배율 (판정 범위 = 보이는 범위)
-  const JUDGE_R = LENS_R / ZOOM;
+  const LENS_R = 11;            // 돋보기 테 반지름 (칸)
+  const JUDGE_R = LENS_R - 1.2; // 판정 범위 = 테 안쪽
   const SCORE_ZERO = 40;        // CIEDE2000 이 값 이상이면 0%
   const PAINT_MIN = 0.18;       // 판정에 필요한 렌즈 안 평균 두께 비율
-  const TUBE_AREA = 118;        // 튜브 받침 영역 높이 (CSS px)
+  const TOUCH_LIFT = 10;        // 터치로 튜브를 들면 노즐을 손가락보다 이만큼(칸) 위로
   const BEST_KEY = 'jeoldae-saekgam.best2';  // { sec30: 최고 일치율, speed: 최단 시간(ms) }
   const MODE_KEY = 'jeoldae-saekgam.mode';
   const MODES = {
@@ -56,38 +59,46 @@
   let drag = null;              // { mode: 'tube'|'knife'|'lens', ... }
   let needsRender = true;
 
-  // ---------- 캔버스 / 레이아웃 ----------
-  const cv = $('cv'), ctx = cv.getContext('2d');
-  const off = document.createElement('canvas');
-  const offCtx = off.getContext('2d');
-  let RS = 0, RW = 0, RH = 0, img = null;          // 물감 그림 해상도: 칸당 RS×RS 픽셀
-  let HT, HA, HR, HG, HB, NOISE;                     // 고해상도 버퍼
+  // ---------- 캔버스 / 3D 장면 ----------
+  const cv = $('cv');
+  const RS = 2;                                       // 물감 텍스처 해상도: 칸당 RS×RS
+  const RW = GX * RS, RH = GY * RS, M = RW * RH;
+  const HT = new Float32Array(M), HA = new Float32Array(M), HR = new Float32Array(M), HG = new Float32Array(M), HB = new Float32Array(M);
+  const HEIGHT = new Uint16Array(M), COLOR = new Uint8Array(M * 4), NOISE = new Float32Array(M);
   let needsPaint = true, lastPaintMs = 0;
-  let W = 0, H = 0, DPR = 1, P = { x: 0, y: 0, w: 0, h: 0, cell: 1 }, tubes = [];
+  let W = 0, H = 0, DPR = 1;
+  let S3 = null;
+  try {
+    S3 = createScene(cv, {
+      GX, GY, lensR: LENS_R, bg: '#8d8f94',
+      paper: `rgb(${[0.955, 0.950, 0.932].map(v => Math.round(v * 255)).join(',')})`,
+      pigments: CE.PIGMENTS.map(p => ({ css: p.css })),
+    });
+  } catch (e) {
+    console.error(e);
+    document.getElementById('toast').textContent = '이 브라우저는 3D 그래픽(WebGL)을 지원하지 않아요. 최신 크롬·사파리에서 열어 주세요.';
+    document.getElementById('toast').classList.add('show');
+  }
 
   function layout() {
     const r = cv.getBoundingClientRect();
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = r.width; H = r.height;
-    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-    const availH = Math.max(160, H - TUBE_AREA - 6);
-    let pw = Math.min(W - 16, 540), ph = pw * GY / GX;
-    if (ph > availH) { ph = availH; pw = ph * GX / GY; }
-    P = { x: (W - pw) / 2, y: 2, w: pw, h: ph, cell: pw / GX };
-    document.documentElement.style.setProperty('--palette-w', `${Math.max(pw, 260)}px`);
-    setupRenderBuffers(Math.max(2, Math.min(3, Math.round(P.cell * DPR / 2))));
-    // 튜브 배치
-    const n = NP, span = Math.min(W - 12, Math.max(pw + 40, 320));
-    const step = span / n, tw = Math.min(34, step * 0.62), th = tw * 2.75;
-    const top = P.y + P.h + (H - (P.y + P.h) - th) / 2 + 4;
-    tubes = CE.PIGMENTS.map((p, i) => ({
-      p, w: tw, h: th, x: (W - span) / 2 + step * (i + 0.5), y: top + th / 2,
-    }));
+    if (!S3) return;
+    // 목표 카드를 팔레트 위쪽 모서리 바로 위에 띄운다 (원작처럼)
+    const bar = document.querySelector('.targetbar');
+    const barH = Math.max(54, Math.min(76, H * 0.09)) + 12;
+    S3.resize(W, H, DPR, barH);
+    const e = S3.paletteTopEdge();
+    const root = document.documentElement.style;
+    root.setProperty('--palette-w', `${Math.max(e.right - e.left, 240)}px`);
+    root.setProperty('--bar-left', `${cv.offsetLeft + e.left}px`);
+    root.setProperty('--bar-top', `${Math.max(0, e.top - barH)}px`);
+    bar.style.height = `${barH - 12}px`;
     needsRender = true;
   }
 
   // ---------- 격자 유틸 ----------
-  const toGrid = (x, y) => [(x - P.x) / P.cell, (y - P.y) / P.cell];
   const inPalette = (gx, gy) => gx >= 0 && gy >= 0 && gx < GX && gy < GY;
 
   function cellColor(c) {
@@ -220,21 +231,13 @@
     lens.x = Math.min(GX - JUDGE_R - 0.2, Math.max(JUDGE_R + 0.2, lens.x));
     lens.y = Math.min(GY - JUDGE_R - 0.2, Math.max(JUDGE_R + 0.2, lens.y));
   }
-  const HANDLE_ANG = Math.PI / 4;
-  function lensGeom() {
-    const cx = P.x + lens.x * P.cell, cy = P.y + lens.y * P.cell, R = LENS_R * P.cell;
-    const hx0 = cx + Math.cos(HANDLE_ANG) * (R + 4), hy0 = cy + Math.sin(HANDLE_ANG) * (R + 4);
-    const len = Math.max(46, R * 1.35);
-    const hx1 = hx0 + Math.cos(HANDLE_ANG) * len, hy1 = hy0 + Math.sin(HANDLE_ANG) * len;
-    return { cx, cy, R, hx0, hy0, hx1, hy1 };
-  }
-  function hitLens(x, y) {
-    const g = lensGeom(), d = Math.hypot(x - g.cx, y - g.cy);
-    if (d > g.R - Math.max(10, g.R * 0.22) && d < g.R + 14) return true;
-    // 손잡이 선분과의 거리
-    const vx = g.hx1 - g.hx0, vy = g.hy1 - g.hy0;
-    const t = Math.max(0, Math.min(1, ((x - g.hx0) * vx + (y - g.hy0) * vy) / (vx * vx + vy * vy)));
-    return Math.hypot(x - (g.hx0 + vx * t), y - (g.hy0 + vy * t)) < 16;
+  // 돋보기 테·손잡이를 잡았는지 (격자 좌표로 판단, 손잡이는 오른쪽 아래 45°)
+  function hitLens(gx, gy) {
+    const d = Math.hypot(gx - lens.x, gy - lens.y);
+    if (d > LENS_R - 2.6 && d < LENS_R + 2.8) return true;
+    const ux = Math.SQRT1_2, uy = Math.SQRT1_2;
+    const t = (gx - lens.x) * ux + (gy - lens.y) * uy, perp = Math.abs(-(gx - lens.x) * uy + (gy - lens.y) * ux);
+    return t > LENS_R && t < LENS_R + 21 && perp < 2.8;
   }
   function judgeCells() {
     const out = [], r2 = JUDGE_R * JUDGE_R;
@@ -247,17 +250,8 @@
   }
 
   // ---------- 튜브 ----------
-  function hitTube(x, y) {
-    for (const t of tubes) {
-      if (Math.abs(x - t.x) < Math.max(t.w * 0.75, 20) && Math.abs(y - t.y) < t.h * 0.6) return t;
-    }
-    return null;
-  }
-  // 손가락에 가리지 않도록 터치일 때는 노즐을 더 위로
-  function nozzlePos(d) {
-    const t = d.tube, lift = d.touch ? 34 : 6;
-    return [d.x, d.y - t.h * 0.5 - lift];
-  }
+  // 노즐 위치(격자): 손가락에 가리지 않도록 터치일 때는 조금 위(-y)로
+  function nozzlePos(d) { return [d.gx, d.gy - (d.touch ? TOUCH_LIFT : 0)]; }
 
   // ---------- 목표 색 ----------
   function makeTarget() {
@@ -471,40 +465,25 @@
   for (let i = 0; i <= 4096; i++) LUT[i] = Math.round(CE.toSrgb(i / 4096) * 255);
   const lut = v => LUT[v <= 0 ? 0 : v >= 1 ? 4096 : (v * 4096) | 0];
 
-  // ---------- 고해상도 물감 렌더러 ----------
-  // 칸(격자) 값을 RS배로 부드럽게 보간해 두께 지도를 만들고, 그 기울기로 빛·광택·그림자를 넣는다.
-  // 가장자리는 두께 임계값으로 또렷하게 자르므로 뿌옇게 번지지 않는다.
-  function setupRenderBuffers(rs) {
-    if (rs === RS && img) return;
-    RS = rs; RW = GX * RS; RH = GY * RS;
-    off.width = RW; off.height = RH;
-    img = offCtx.createImageData(RW, RH);
-    const M = RW * RH;
-    HT = new Float32Array(M); HA = new Float32Array(M);
-    HR = new Float32Array(M); HG = new Float32Array(M); HB = new Float32Array(M);
-    // 물감 결(임파스토)용 노이즈: 두 옥타브 값 노이즈, 가로로 살짝 늘림
-    NOISE = new Float32Array(M);
+  // 물감 결(임파스토)용 노이즈: 두 옥타브 값 노이즈
+  (function makeNoise() {
     const grid = (sx, sy, seed) => {
       const gw = Math.ceil(RW / sx) + 2, gh = Math.ceil(RH / sy) + 2, g = new Float32Array(gw * gh);
       let st = seed; for (let i = 0; i < g.length; i++) { st = (st * 16807) % 2147483647; g[i] = st / 2147483647 - 0.5; }
       return (x, y) => {
         const u = x / sx, v = y / sy, x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0;
-        const sxx = fx * fx * (3 - 2 * fx), syy = fy * fy * (3 - 2 * fy);
         const a = g[y0 * gw + x0], b = g[y0 * gw + x0 + 1], c = g[(y0 + 1) * gw + x0], d = g[(y0 + 1) * gw + x0 + 1];
-        return a + (b - a) * sxx + (c - a) * syy + (a - b - c + d) * sxx * syy;
+        const sx2 = fx * fx * (3 - 2 * fx), sy2 = fy * fy * (3 - 2 * fy);
+        return a + (b - a) * sx2 + (c - a) * sy2 + (a - b - c + d) * sx2 * sy2;
       };
     };
-    const n1 = grid(RS * 1.6, RS * 0.9, 11), n2 = grid(RS * 0.6, RS * 0.45, 29);
-    for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) NOISE[y * RW + x] = n1(x, y) * 0.7 + n2(x, y) * 0.45;
-    needsPaint = true;
-  }
+    const n1 = grid(RS * 3.0, RS * 1.6, 11), n2 = grid(RS * 1.4, RS * 0.9, 29);
+    for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) NOISE[y * RW + x] = n1(x, y) * 0.7 + n2(x, y) * 0.4;
+  })();
 
   const WT = new Float32Array(N), WC = new Float32Array(N * 3), TS = new Float32Array(N);
-  const L = (() => { const v = [-0.45, -0.58, 0.68], m = Math.hypot(...v); return v.map(x => x / m); })();
-  const Hh = (() => { const v = [L[0], L[1], L[2] + 1], m = Math.hypot(...v); return v.map(x => x / m); })();
-
-  function paintImage() {
-    // 칸마다 색에 두께 가중치를 곱해 둔다 (보간할 때 가장자리가 바탕색으로 탁해지지 않게)
+  // 격자 → 물감 텍스처(높이 half-float, 색 sRGB + 덮임)
+  function paintTextures() {
     for (let c = 0; c < N; c++) {
       const t = thick[c];
       if (t > 1e-5) {
@@ -513,13 +492,11 @@
         WT[c] = w; WC[c * 3] = col[c * 3] * w; WC[c * 3 + 1] = col[c * 3 + 1] * w; WC[c * 3 + 2] = col[c * 3 + 2] * w;
       } else { WT[c] = 0; WC[c * 3] = WC[c * 3 + 1] = WC[c * 3 + 2] = 0; }
     }
-    // 그리기용으로 두께를 살짝 부드럽게 (격자 모서리가 각져 보이지 않게)
     for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
       const c = y * GX + x, t = thick[c];
       const l = x > 0 ? thick[c - 1] : t, r = x < GX - 1 ? thick[c + 1] : t, u = y > 0 ? thick[c - GX] : t, d = y < GY - 1 ? thick[c + GX] : t;
       TS[c] = t * 0.5 + (l + r + u + d) * 0.125;
     }
-    // 1단계: 고해상도 두께·색 보간
     const inv = 1 / RS;
     for (let Y = 0; Y < RH; Y++) {
       let v = (Y + 0.5) * inv - 0.5; if (v < 0) v = 0; if (v > GY - 1) v = GY - 1;
@@ -529,212 +506,70 @@
         const x0 = Math.min(GX - 2, u | 0); let fx = u - x0; fx = fx * fx * (3 - 2 * fx);
         const c00 = y0 * GX + x0, c10 = c00 + 1, c01 = c00 + GX, c11 = c01 + 1;
         const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-        const i = Y * RW + X;
+        const i = Y * RW + X, o = i * 4;
         const t = TS[c00] * w00 + TS[c10] * w10 + TS[c01] * w01 + TS[c11] * w11;
-        HT[i] = t;
         const a = coverage(t);
-        HA[i] = a;
+        // 높이: 두께 + 물감 결. 덮이지 않은 곳은 0
+        const h = a > 0 ? (t > 1.4 ? 1.4 : t) * 0.9 + NOISE[i] * (t > 0.45 ? 0.45 : t) * 0.12 : 0;
+        HEIGHT[i] = DataUtils.toHalfFloat(h * a);
         if (a > 0) {
           const ws = WT[c00] * w00 + WT[c10] * w10 + WT[c01] * w01 + WT[c11] * w11 + 1e-9;
-          HR[i] = (WC[c00 * 3] * w00 + WC[c10 * 3] * w10 + WC[c01 * 3] * w01 + WC[c11 * 3] * w11) / ws;
-          HG[i] = (WC[c00 * 3 + 1] * w00 + WC[c10 * 3 + 1] * w10 + WC[c01 * 3 + 1] * w01 + WC[c11 * 3 + 1] * w11) / ws;
-          HB[i] = (WC[c00 * 3 + 2] * w00 + WC[c10 * 3 + 2] * w10 + WC[c01 * 3 + 2] * w01 + WC[c11 * 3 + 2] * w11) / ws;
-        }
+          COLOR[o] = lut((WC[c00 * 3] * w00 + WC[c10 * 3] * w10 + WC[c01 * 3] * w01 + WC[c11 * 3] * w11) / ws);
+          COLOR[o + 1] = lut((WC[c00 * 3 + 1] * w00 + WC[c10 * 3 + 1] * w10 + WC[c01 * 3 + 1] * w01 + WC[c11 * 3 + 1] * w11) / ws);
+          COLOR[o + 2] = lut((WC[c00 * 3 + 2] * w00 + WC[c10 * 3 + 2] * w10 + WC[c01 * 3 + 2] * w01 + WC[c11 * 3 + 2] * w11) / ws);
+          COLOR[o + 3] = Math.round(a * 255);
+        } else COLOR[o + 3] = 0;
       }
     }
-    // 2단계: 빛·광택·그림자
-    const d = img.data;
-    const hs = 3.2 / RS * 2.2;                         // 높이 → 기울기 세기
-    const sdx = Math.round(RS * 1.1), sdy = Math.round(RS * 1.5);   // 물감 그림자 방향(오른쪽 아래)
-    const height = i => { const t = HT[i]; return (t > 1.4 ? 1.4 : t) * 0.9 + NOISE[i] * (t > 0.45 ? 0.45 : t) * 0.55; };
-    for (let Y = 0; Y < RH; Y++) for (let X = 0; X < RW; X++) {
-      const i = Y * RW + X, o = i * 4, a = HA[i];
-      // 바탕(팔레트): 근처 물감이 드리운 그림자
-      let pr = PAPER[0], pg = PAPER[1], pb = PAPER[2];
-      const sx = X - sdx, sy = Y - sdy;
-      if (sx >= 0 && sy >= 0) {
-        const st = HT[sy * RW + sx];
-        if (st > COV0) { const sh = 1 - 0.2 * smooth(COV0, 0.35, st); pr *= sh; pg *= sh; pb *= sh; }
-      }
-      let r = pr, g = pg, b = pb;
-      if (a > 0) {
-        const xl = X > 0 ? i - 1 : i, xr = X < RW - 1 ? i + 1 : i, yu = Y > 0 ? i - RW : i, yd = Y < RH - 1 ? i + RW : i;
-        let nx = (height(xl) - height(xr)) * hs, ny = (height(yu) - height(yd)) * hs, nz = 1;
-        const nm = 1 / Math.sqrt(nx * nx + ny * ny + 1); nx *= nm; ny *= nm; nz *= nm;
-        const diff = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
-        const nh = Math.max(0, nx * Hh[0] + ny * Hh[1] + nz * Hh[2]);
-        const spec = Math.pow(nh, 70) * 0.75 + Math.pow(nh, 12) * 0.05;
-        const edge = 0.86 + 0.14 * smooth(COV0, 0.2, HT[i]);   // 가장자리가 살짝 어두운 두께감
-        const lit = (0.6 + 0.58 * diff) * edge;
-        r = pr + (HR[i] * lit + spec - pr) * a;
-        g = pg + (HG[i] * lit + spec - pg) * a;
-        b = pb + (HB[i] * lit + spec - pb) * a;
-      }
-      d[o] = lut(r); d[o + 1] = lut(g); d[o + 2] = lut(b); d[o + 3] = 255;
-    }
-    offCtx.putImageData(img, 0, 0);
-  }
-
-  function roundRect(c, x, y, w, h, r) {
-    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
-    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
-  }
-
-  function drawTube(t, x, y, open, ghost) {
-    const w = t.w, h = t.h;
-    ctx.save();
-    ctx.translate(x, y);
-    if (ghost) ctx.globalAlpha = 0.28;
-    // 그림자
-    if (!ghost) { ctx.shadowColor = 'rgba(0,0,0,.28)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 4; }
-    // 몸통 (금속)
-    const bodyTop = -h * 0.30, bodyBot = h * 0.42;
-    const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-    g.addColorStop(0, '#9fa2a7'); g.addColorStop(0.35, '#eceef0'); g.addColorStop(0.7, '#c9ccd0'); g.addColorStop(1, '#8c8f94');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.5, bodyBot); ctx.lineTo(-w * 0.5, bodyTop + w * 0.12);
-    ctx.quadraticCurveTo(-w * 0.5, bodyTop - w * 0.1, -w * 0.2, bodyTop - w * 0.28);
-    ctx.lineTo(w * 0.2, bodyTop - w * 0.28);
-    ctx.quadraticCurveTo(w * 0.5, bodyTop - w * 0.1, w * 0.5, bodyTop + w * 0.12);
-    ctx.lineTo(w * 0.5, bodyBot); ctx.closePath(); ctx.fill();
-    ctx.shadowColor = 'transparent';
-    // 라벨 (물감 색)
-    const lg = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-    lg.addColorStop(0, 'rgba(0,0,0,.22)'); lg.addColorStop(0.35, 'rgba(255,255,255,.18)'); lg.addColorStop(0.75, 'rgba(0,0,0,0)'); lg.addColorStop(1, 'rgba(0,0,0,.25)');
-    ctx.fillStyle = t.p.css; ctx.fillRect(-w / 2, -h * 0.12, w, h * 0.42);
-    ctx.fillStyle = lg; ctx.fillRect(-w / 2, -h * 0.12, w, h * 0.42);
-    // 아래 접힌 끝
-    ctx.fillStyle = '#b5b8bd'; ctx.fillRect(-w * 0.54, bodyBot - 2, w * 1.08, h * 0.08);
-    ctx.fillStyle = 'rgba(0,0,0,.15)';
-    for (let k = -2; k <= 2; k++) ctx.fillRect(k * w * 0.2 - 0.5, bodyBot, 1, h * 0.06);
-    // 목 + 뚜껑
-    const neckY = bodyTop - w * 0.28;
-    ctx.fillStyle = '#c4c7cb'; ctx.fillRect(-w * 0.16, neckY - h * 0.06, w * 0.32, h * 0.06);
-    if (!open) {
-      const cg = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-      cg.addColorStop(0, '#7d8085'); cg.addColorStop(0.4, '#d7d9dc'); cg.addColorStop(1, '#6f7277');
-      ctx.fillStyle = cg;
-      roundRect(ctx, -w * 0.32, neckY - h * 0.2, w * 0.64, h * 0.15, 3); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,.18)';
-      for (let k = -2; k <= 2; k++) ctx.fillRect(k * w * 0.1 - 0.5, neckY - h * 0.19, 1, h * 0.13);
-    } else {
-      // 열린 노즐 끝에 물감 한 방울
-      ctx.fillStyle = t.p.css;
-      ctx.beginPath(); ctx.ellipse(0, neckY - h * 0.06, w * 0.13, w * 0.09, 0, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  function drawKnife(x, y) {
-    // 날 끝이 (x,y). 손잡이는 오른쪽 아래로.
-    ctx.save(); ctx.translate(x, y); ctx.rotate(-Math.PI / 4 + Math.PI);
-    ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 3;
-    const bg = ctx.createLinearGradient(0, -10, 0, 10);
-    bg.addColorStop(0, '#d9dce0'); bg.addColorStop(0.5, '#a7abb1'); bg.addColorStop(1, '#7f838a');
-    ctx.fillStyle = bg;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-14, -12, -34, -7); ctx.lineTo(-38, 0); ctx.lineTo(-34, 7); ctx.quadraticCurveTo(-14, 12, 0, 0); ctx.fill();
-    ctx.strokeStyle = '#7d8187'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-38, 0); ctx.lineTo(-52, 0); ctx.stroke();
-    ctx.fillStyle = '#5b3a24'; roundRect(ctx, -96, -5, 46, 10, 5); ctx.fill();
-    ctx.restore();
-  }
-
-  function drawLens() {
-    const g = lensGeom();
-    // 손잡이
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 4;
-    ctx.strokeStyle = '#b9bcc1'; ctx.lineWidth = 7;
-    const nx = g.hx0 + Math.cos(HANDLE_ANG) * 10, ny = g.hy0 + Math.sin(HANDLE_ANG) * 10;
-    ctx.beginPath(); ctx.moveTo(g.hx0, g.hy0); ctx.lineTo(nx, ny); ctx.stroke();
-    ctx.strokeStyle = '#1f1f22'; ctx.lineWidth = 11;
-    ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(g.hx1, g.hy1); ctx.stroke();
-    ctx.restore();
-    // 확대된 물감
-    ctx.save();
-    ctx.beginPath(); ctx.arc(g.cx, g.cy, g.R, 0, Math.PI * 2); ctx.clip();
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-    const sr = LENS_R / ZOOM;
-    ctx.drawImage(off, (lens.x - sr) * RS, (lens.y - sr) * RS, sr * 2 * RS, sr * 2 * RS, g.cx - g.R, g.cy - g.R, g.R * 2, g.R * 2);
-    const gl = ctx.createRadialGradient(g.cx - g.R * 0.4, g.cy - g.R * 0.45, 0, g.cx, g.cy, g.R);
-    gl.addColorStop(0, 'rgba(255,255,255,.35)'); gl.addColorStop(0.35, 'rgba(255,255,255,.06)'); gl.addColorStop(1, 'rgba(0,0,0,.10)');
-    ctx.fillStyle = gl; ctx.fillRect(g.cx - g.R, g.cy - g.R, g.R * 2, g.R * 2);
-    ctx.restore();
-    // 테두리
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 3;
-    const rg = ctx.createLinearGradient(g.cx - g.R, g.cy - g.R, g.cx + g.R, g.cy + g.R);
-    rg.addColorStop(0, '#f1f2f4'); rg.addColorStop(0.5, '#9a9ea4'); rg.addColorStop(1, '#5d6066');
-    ctx.strokeStyle = rg; ctx.lineWidth = Math.max(5, g.R * 0.09);
-    ctx.beginPath(); ctx.arc(g.cx, g.cy, g.R, 0, Math.PI * 2); ctx.stroke();
-    ctx.restore();
+    S3.updatePaint(RW, RH, HEIGHT, COLOR);
   }
 
   function render() {
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    // 팔레트 판
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,.30)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
-    ctx.fillStyle = '#efeee9'; roundRect(ctx, P.x, P.y, P.w, P.h, 4); ctx.fill();
-    ctx.restore();
-    if (needsPaint) { const t0 = performance.now(); paintImage(); needsPaint = false; lastPaintMs = performance.now() - t0; }
-    ctx.save();
-    roundRect(ctx, P.x, P.y, P.w, P.h, 4); ctx.clip();
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(off, P.x, P.y, P.w, P.h);
-    // 판에 은은한 빛
-    const sh = ctx.createLinearGradient(P.x, P.y, P.x + P.w, P.y + P.h);
-    sh.addColorStop(0, 'rgba(255,255,255,.10)'); sh.addColorStop(0.6, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,0,.05)');
-    ctx.fillStyle = sh; ctx.fillRect(P.x, P.y, P.w, P.h);
-    ctx.restore();
-
-    drawLens();
-    // 튜브 받침
-    for (const t of tubes) {
-      const held = drag && drag.mode === 'tube' && drag.tube === t;
-      drawTube(t, t.x, t.y, false, held);
-    }
-    if (drag && drag.mode === 'tube') {
-      const [nx, ny] = nozzlePos(drag);
-      drawTube(drag.tube, nx, ny + drag.tube.h * 0.5 + drag.tube.h * 0.36, true, false);
-    }
-    if (drag && drag.mode === 'knife') drawKnife(drag.x, drag.y);
+    if (!S3) return;
+    if (needsPaint) { const t0 = performance.now(); paintTextures(); needsPaint = false; lastPaintMs = performance.now() - t0; }
+    S3.setLens(lens.x, lens.y);
+    if (drag && drag.mode === 'tube') { const [nx, ny] = nozzlePos(drag); S3.setHeldTube(drag.tube, nx, ny); }
+    else S3.setHeldTube(-1);
+    if (drag && drag.mode === 'knife') S3.setKnife(true, knife.x, knife.y, knife.x - knife.px, knife.y - knife.py);
+    else S3.setKnife(false);
+    S3.render();
     needsRender = false;
   }
 
   // ---------- 입력 ----------
+  const LENS_PICK_H = 0.42;           // 돋보기는 팔레트 위에 떠 있으니 그 높이에서 잡는다
   function onDown(e) {
-    if (state !== 'playing' || drag) return;
-    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    if (state !== 'playing' || drag || !S3) return;
     const touch = e.pointerType !== 'mouse';
+    const at = S3.pick(e.clientX, e.clientY), atLens = S3.pick(e.clientX, e.clientY, LENS_PICK_H);
+    if (!at) return;
     try { cv.setPointerCapture(e.pointerId); } catch (err) {}   // 일부 기기에서 실패해도 조작은 계속되게
-    if (hitLens(x, y)) {
-      const [gx, gy] = toGrid(x, y);
-      drag = { id: e.pointerId, mode: 'lens', ox: lens.x - gx, oy: lens.y - gy, x, y };
+    const tube = S3.pickTube(e.clientX, e.clientY);
+    if (tube >= 0) {
+      // 집자마자 바닥에 찍히지 않게 처음엔 빠르게 움직이는 것으로 본다
+      drag = { id: e.pointerId, mode: 'tube', tube, gx: at.gx, gy: at.gy, cx: e.clientX, cy: e.clientY, sx: e.clientX, sy: e.clientY, touch, last: null, speed: 600 };
+    } else if (atLens && hitLens(atLens.gx, atLens.gy)) {
+      drag = { id: e.pointerId, mode: 'lens', ox: lens.x - atLens.gx, oy: lens.y - atLens.gy };
     } else {
-      const t = hitTube(x, y);
-      if (t) {
-        drag = { id: e.pointerId, mode: 'tube', tube: t, x, y, sx: x, sy: y, touch, last: null, speed: 600 };   // 집자마자 바닥에 찍히지 않게 처음엔 빠르게 움직이는 것으로 본다
-      } else {
-        const [gx, gy] = toGrid(x, y);
-        if (!inPalette(gx, gy)) { try { cv.releasePointerCapture(e.pointerId); } catch (err) {} return; }
-        drag = { id: e.pointerId, mode: 'knife', x, y };
-        knife.x = gx; knife.y = gy; knife.active = true;
-        knifeStep(gx, gy);
-      }
+      if (!inPalette(at.gx, at.gy)) { try { cv.releasePointerCapture(e.pointerId); } catch (err) {} drag = null; return; }
+      drag = { id: e.pointerId, mode: 'knife' };
+      knife.x = knife.px = at.gx; knife.y = knife.py = at.gy; knife.active = true;
+      knifeStep(at.gx, at.gy);
     }
     needsRender = true;
     e.preventDefault();
   }
   function onMove(e) {
-    if (!drag || e.pointerId !== drag.id) return;
-    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-    drag.x = x; drag.y = y;
-    const [gx, gy] = toGrid(x, y);
-    if (drag.mode === 'lens') { lens.x = gx + drag.ox; lens.y = gy + drag.oy; clampLens(); }
-    else if (drag.mode === 'knife') knifeTo(clampG(gx, GX), clampG(gy, GY));
+    if (!drag || e.pointerId !== drag.id || !S3) return;
+    if (drag.mode === 'lens') {
+      const p = S3.pick(e.clientX, e.clientY, LENS_PICK_H);
+      if (p) { lens.x = p.gx + drag.ox; lens.y = p.gy + drag.oy; clampLens(); }
+    } else {
+      const p = S3.pick(e.clientX, e.clientY);
+      if (!p) return;
+      if (drag.mode === 'knife') knifeTo(clampG(p.gx, GX), clampG(p.gy, GY));
+      else { drag.gx = p.gx; drag.gy = p.gy; drag.cx = e.clientX; drag.cy = e.clientY; }
+    }
     needsRender = true;
     e.preventDefault();
   }
@@ -765,13 +600,12 @@
     const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
     if (drag && drag.mode === 'tube') {
       // 손 움직임 속도(px/s)를 0.09초 시간상수로 부드럽게
-      const inst = drag.px == null ? 0 : Math.hypot(drag.x - drag.px, drag.y - drag.py) / Math.max(dt, 1e-3);
-      drag.px = drag.x; drag.py = drag.y;
+      const inst = drag.px == null ? 0 : Math.hypot(drag.cx - drag.px, drag.cy - drag.py) / Math.max(dt, 1e-3);
+      drag.px = drag.cx; drag.py = drag.cy;
       drag.speed = (drag.speed || 0) + (inst - (drag.speed || 0)) * (1 - Math.exp(-dt / 0.09));
-      const [nx, ny] = nozzlePos(drag);
-      const [gx, gy] = toGrid(nx, ny);
+      const [gx, gy] = nozzlePos(drag);
       // 튜브를 집자마자 팔레트 끝에 물감이 묻지 않도록, 조금 끌어온 뒤부터 짠다
-      if (!drag.armed && Math.hypot(drag.x - drag.sx, drag.y - drag.sy) > 18) drag.armed = true;
+      if (!drag.armed && Math.hypot(drag.cx - drag.sx, drag.cy - drag.sy) > 18) drag.armed = true;
       if (drag.armed && inPalette(gx, gy)) {
         // 지난 프레임 노즐 위치부터 지금 위치까지 선을 따라 짜낸다
         const from = drag.last && inPalette(...drag.last) ? drag.last : [gx, gy];
@@ -781,7 +615,7 @@
         const steps = Math.max(1, Math.ceil(dist / 0.8));
         const amount = SQUEEZE_RATE * dt * flow / steps;
         for (let i = 1; i <= steps; i++) {
-          deposit(from[0] + (gx - from[0]) * i / steps, from[1] + (gy - from[1]) * i / steps, drag.tube.p.index, amount);
+          deposit(from[0] + (gx - from[0]) * i / steps, from[1] + (gy - from[1]) * i / steps, drag.tube, amount);
         }
         drag.squeezed = true;
       }
@@ -848,8 +682,17 @@
 
   // 테스트/디버그용 훅
   window.__game = {
-    get target() { return target; }, get state() { return state; }, get paintMs() { return lastPaintMs; }, get renderScale() { return RS; }, get mode() { return mode; },
-    startMode, setElapsed(ms) { runStart = performance.now() - ms; }, get tubes() { return tubes.map(t => ({ x: t.x, y: t.y })); }, get palette() { return P; }, lens, judge, recompute, GX, GY, NP, amt, thick,
+    get target() { return target; }, get state() { return state; }, get paintMs() { return lastPaintMs; }, get renderScale() { return RS; }, S3, get mode() { return mode; },
+    startMode, setElapsed(ms) { runStart = performance.now() - ms; }, 
+    /** 테스트용: 튜브 i 의 화면 좌표(클라이언트), 격자 좌표 → 화면 좌표 */
+    tubeClient(i) { const r = cv.getBoundingClientRect(), [x, y] = S3.tubeScreen(i); return [r.left + x, r.top + y]; },
+    gridClient(gx, gy) { const r = cv.getBoundingClientRect(), [x, y] = S3.project(gx, gy); return [r.left + x, r.top + y]; }, lens, judge, recompute, GX, GY, NP, amt, thick,
+    fillAll(parts, t = 0.3) {
+      const tot = parts.reduce((a, b) => a + b, 0);
+      for (let c = 0; c < N; c++) for (let p = 0; p < NP; p++) amt[c * NP + p] = parts[p] / tot * t;
+      recompute(); needsRender = true;
+    },
+    mixHex(parts) { return CE.linToHex(CE.mixLinear(parts)); },
     fillLensWith(parts) {
       const tot = parts.reduce((a, b) => a + b, 0);
       for (const c of judgeCells()) for (let p = 0; p < NP; p++) amt[c * NP + p] = parts[p] / tot * 0.3;

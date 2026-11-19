@@ -16,7 +16,7 @@
 
 | 항목 | 원본 (분석) | 이 버전 |
 |---|---|---|
-| 렌더링 | three.js r128 3D | 2D Canvas (라이브러리 없음, 가벼움) |
+| 렌더링 | three.js r128 3D | three.js r160 3D (`vendor/three`에 포함, MIT) — 비스듬한 카메라, 두께 있는 광택 물감, 그림자 |
 | 물감 혼합 | 분광 Kubelka-Munk, 400~700nm 16밴드 | 같은 방식 (`js/color.js`, 물감 데이터는 새로 설계) |
 | 물감 | 8색 | 흰색·노랑·빨강·자홍·군청·청록·갈색·검정 |
 | 판정 | 돋보기 렌즈 안, CIEDE2000, ΔE 40 이상이면 0% | 같은 기준. 렌즈에 보이는 범위 = 판정 범위 |
@@ -31,6 +31,8 @@ index.html          화면
 css/style.css       스타일
 js/color.js         색 엔진 (분광 혼합, Lab, CIEDE2000)
 js/game.js          게임 (팔레트 시뮬레이션, 입력, 판정, 결과)
+js/scene3d.js       3D 장면 (팔레트, 물감 면, 튜브, 헤라, 돋보기, 카메라)
+vendor/three/       three.js r160 (MIT 라이선스)
 js/ads.js           결과 화면 광고 로더
 ads-config.js       광고 설정  ← 여기만 고치면 됨
 test/               색 엔진 단위 테스트 + 브라우저 플레이 테스트

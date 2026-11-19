@@ -36,7 +36,7 @@ for (const [m, n, sc, t] of [['sec30', '색맹아님', 97.2, 21000], ['sec30', '
   await worker.fetch(new Request('https://api.saekgam.cc/runs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': `1.1.1.${++ipSeq}` }, body: JSON.stringify({ mode: m, name: n, score: sc, time_ms: t, target: '#5A8FD0', mine: '#5C8ECD' }) }), env);
 }
 
-const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const errors = [];
 const log = (...a) => console.log(...a);
 for (const [name, viewport, mobile] of [['mobile', { width: 390, height: 844 }, true], ['pc', { width: 1280, height: 800 }, false]]) {

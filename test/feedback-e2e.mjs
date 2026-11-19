@@ -14,7 +14,7 @@ const D1 = { prepare(sql, args = []) { const idx = [...sql.matchAll(/\?(\d+)/g)]
   batch: async l => l.map(s => s._exec()) };
 const env = { DB: D1 }; let ip = 0;
 await worker.fetch(new Request('https://api.saekgam.cc/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.1.1.1' }, body: JSON.stringify({ name: '먼저온사람', body: '물감 섞이는 게 진짜 같아요!' }) }), env);
-const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const errors = [];
 for (const [name, vp, m] of [['mobile', { width: 390, height: 844 }, true], ['pc', { width: 1280, height: 800 }, false]]) {
   const pg = await b.newPage({ viewport: vp, deviceScaleFactor: 2, isMobile: m, hasTouch: m });

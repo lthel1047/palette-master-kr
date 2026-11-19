@@ -35,16 +35,17 @@
       </div>
     </header>
 
-    <section class="targetbar" aria-label="목표 색">
-      <div id="target" class="target-card" role="img" aria-label="목표 색">
-        <span class="target-label">목표</span>
-        <button id="mode-chip" class="mode-chip" type="button" aria-label="모드 바꾸기"></button>
-        <span id="timer" class="timer" aria-live="off"></span>
-      </div>
-      <button id="done" class="done-btn" type="button">완성</button>
-    </section>
+
 
     <div id="stage">
+    <section class="targetbar" aria-label="목표 색">
+        <div id="target" class="target-card" role="img" aria-label="목표 색">
+          <span class="target-label">목표</span>
+          <button id="mode-chip" class="mode-chip" type="button" aria-label="모드 바꾸기"></button>
+          <span id="timer" class="timer" aria-live="off"></span>
+        </div>
+        <button id="done" class="done-btn" type="button">완성</button>
+      </section>
       <canvas id="cv" aria-label="물감 팔레트. 튜브를 팔레트로 끌어 물감을 짜고, 팔레트를 드래그해 섞습니다."></canvas>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </div>
@@ -173,6 +174,7 @@
   <script src="js/ads.js"></script>
   <script src="js/ranking.js"></script>
   <script src="js/feedback.js"></script>
-  <script src="js/game.js"></script>
+  <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js" } }</script>
+  <script type="module" src="js/game.js"></script>
 </body>
 </html>
