@@ -94,6 +94,10 @@ node --test test/*.test.js       # 색 엔진 테스트
 npx serve .                      # 로컬 실행 (아무 정적 서버나 가능)
 ```
 
+## 출처
+
+게임 방식은 [調色マスター](https://x282665.com/games/palette-master/)를 참고했습니다. 화면 오른쪽 아래에 원작 링크를 표시합니다.
+
 ## 라이선스
 
 MIT
