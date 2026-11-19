@@ -168,7 +168,7 @@ button { font-family: inherit; cursor: pointer; }
 #news { z-index: 11; }
 #news .howto-card { max-height: 86vh; overflow-y: auto; }
 .news-date { margin: -4px 0 6px; color: #888; font-size: 13px; }
-#howto .fb-link { display: block; margin: 10px auto 0; }
+#howto .fb-link { display: block; margin: 10px auto 0; text-align: center; }
 
 @media (min-width: 900px) {
   .brand h1 { font-size: 22px; }

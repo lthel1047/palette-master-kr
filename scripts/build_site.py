@@ -21,7 +21,7 @@ out.mkdir(parents=True, exist_ok=True)
 for name in ['index.html', 'ads-config.js', 'favicon.svg', 'og.png']:
     if (src / name).exists():
         shutil.copy2(src / name, out / name)
-for d in ['css', 'js', 'vendor']:
+for d in ['css', 'js', 'vendor', 'guide']:
     if (src / d).exists():
         shutil.copytree(src / d, out / d, dirs_exist_ok=True)
 # 실제 사이트 루트에만 두는 파일: ads.txt, 검색엔진용 robots.txt·sitemap.xml, 구글/네이버 소유 확인 파일
@@ -50,4 +50,7 @@ if staging:
     (out / 'ads-config.js').write_text(re.sub(r"provider:\s*'[a-z]+'", "provider: 'none'", cfg), encoding='utf-8')
 
 (out / 'index.html').write_text(html, encoding='utf-8')
+if staging and (out / 'guide' / 'index.html').exists():
+    g = out / 'guide' / 'index.html'
+    g.write_text(g.read_text(encoding='utf-8').replace('<head>', '<head>\n  <meta name="robots" content="noindex, nofollow">', 1), encoding='utf-8')
 print(f"built {'staging' if staging else 'production'} → {out} (v={ver})")
