@@ -92,9 +92,12 @@ export function createScene(canvas, opts) {
         varying vec2 vPUv;`)
       .replace('#include <map_fragment>', `
         vec4 pc = texture2D(uColor, vPUv);
-        if (pc.a < 0.02) discard;
+        // pc.a = 두께/(2·COV1). 덮임 경계를 픽셀 단위로 계산 (칸 계단 없이 매끈하고 또렷한 물감 가장자리)
+        float aw = max(fwidth(pc.a), 0.004);
+        float cov = smoothstep(0.30 - aw, 0.40 + aw, pc.a);   // 경계는 또렷하게, 계단 없이
+        if (cov < 0.01) discard;
         diffuseColor.rgb *= pc.rgb * uGain;
-        diffuseColor.a *= smoothstep(0.0, 1.0, pc.a);`)
+        diffuseColor.a *= cov;`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           float hL = texture2D(uHeight, vPUv - vec2(uTexel.x, 0.0)).r;
@@ -123,7 +126,7 @@ export function createScene(canvas, opts) {
       .replace('#include <common>', `#include <common>
         uniform sampler2D uColor; varying vec2 vPUv;`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        if (texture2D(uColor, vPUv).a < 0.5) discard;`);
+        if (texture2D(uColor, vPUv).a < 0.35) discard;`);
   };
   let paintMesh = null;
   function buildPaintMesh(w, h) {

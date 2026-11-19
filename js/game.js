@@ -17,17 +17,13 @@ import { createScene } from './scene3d.js';
   const GX = 108, GY = 144, N = GX * GY;  // 팔레트 격자 (가로 3 : 세로 4)
   // 물감은 불투명: 아주 얇은 막(COV0 이하)은 안 보이고, COV1 이상이면 바탕이 완전히 가려진다
   const COV0 = 0.02, COV1 = 0.045;
-  const FILM = 0.14;            // 헤라로 펴 바른 물감 막의 두께 (항상 불투명하게 보이는 두께)
-  const SQUEEZE_RATE = 20;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
-  const MIN_DAB = 3;            // 튜브를 짧게만 짜도 처음에 최소 이만큼은 나온다
-  const LOW_PAINT = 20;         // 팔레트 물감 총량이 이보다 적은데 헤라로 비비면 '더 짜세요' 안내
-  const BLOB_R = 2.9;           // 짜낸 물감 방울 반지름 (칸)
+  const SQUEEZE_RATE = 36;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
+  const MIN_DAB = 8;            // 튜브를 짧게만 짜도 처음에 최소 이만큼은 나온다
+  const LOW_PAINT = 25;         // 팔레트 물감 총량이 이보다 적은데 헤라로 비비면 '더 짜세요' 안내
+  const BLOB_R = 3.4;           // 짜낸 물감 방울 반지름 (칸)
   const KNIFE_R = 6.5;          // 헤라 반지름 (칸)
-  let MIX = 0.6;                // 헤라 아래 물감끼리 한 걸음마다 섞이는 정도 (0~1)
-  let SCRAPE = COV0;            // 이보다 얇은(안 보이는) 막만 헤라가 걷어 감 → 칠한 곳에 구멍이 안 남
-  let SPREAD = 0.5;              // 빈 바닥으로 펴지는 정도 (1 = 빈 곳도 FILM 두께까지 채움)
-  // 헤라는 물감을 조금만 떠서(PICK) 대부분 바로 내려놓고(DROP), 섞기는 주로 제자리에서(MIX) 한다
-  let PICK = 0.12, DROP = 0.85;    // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
+  // 헤라: 한 걸음(0.7칸)마다 날 아래를 평균 쪽으로 LEVEL만큼 고르고, PICK만큼 묻혀서, 실린 것의 DROP만큼 내려놓는다
+  let LEVEL = 0.6, PICK = 0.35, DROP = 0.15;
   const LENS_R = 11;            // 돋보기 테 반지름 (칸)
   const JUDGE_R = LENS_R - 1.2; // 판정 범위 = 테 안쪽
   const SCORE_ZERO = 40;        // CIEDE2000 이 값 이상이면 0%
@@ -100,6 +96,7 @@ import { createScene } from './scene3d.js';
     root.setProperty('--palette-w', `${Math.max(e.right - e.left, 240)}px`);
     root.setProperty('--bar-left', `${cv.offsetLeft + e.left}px`);
     root.setProperty('--bar-top', `${Math.max(0, e.top - barH)}px`);
+    root.setProperty('--toast-top', `${Math.max(0, e.top) + 14}px`);
     bar.style.height = `${barH - 12}px`;
     needsRender = true;
   }
@@ -154,6 +151,10 @@ import { createScene } from './scene3d.js';
   }
 
   // ---------- 헤라 ----------
+  // 헤라 날(원판) 아래에서 세 가지가 동시에 일어난다. 모두 물감 총량을 보존한다.
+  //  1) 고르기: 날 아래 칸들을 평균 쪽으로 당긴다 → 덩어리가 납작하게 펴지고 색이 섞인다 (구멍·가시 자국 없음)
+  //  2) 묻히기: 지나가는 자리의 물감을 조금 떠서 헤라에 싣는다
+  //  3) 내려놓기: 실린 물감을 날 무게대로 고르게 내려놓는다 → 끄는 방향으로 점점 옅어지는 그라데이션
   function knifeStep(gx, gy) {
     const r = KNIFE_R, r2 = r * r, load = knife.load;
     const x0 = Math.max(0, Math.floor(gx - r)), x1 = Math.min(GX - 1, Math.ceil(gx + r));
@@ -163,77 +164,37 @@ import { createScene } from './scene3d.js';
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const d2 = (x + 0.5 - gx) ** 2 + (y + 0.5 - gy) ** 2;
       if (d2 >= r2) continue;
-      const w = 1 - d2 / r2; cells.push(y * GX + x); ws.push(w); wsum += w;
+      const q = 1 - d2 / r2, w = q * q;      // 가장자리로 갈수록 부드럽게 0
+      cells.push(y * GX + x); ws.push(w); wsum += w;
     }
     if (!cells.length) return;
-    // 1) 헤라 아래 물감을 묻혀 간다. 안 보일 만큼 얇은 막은 통째로 걷어 가서 자국을 남기지 않는다
+    // 1) 고르기
+    const avg = new Float64Array(NP); let ms = 0;
     for (let i = 0; i < cells.length; i++) {
-      const c = cells[i];
-      if (thick[c] <= 0) continue;
-      const f = thick[c] < SCRAPE ? 1 : PICK * ws[i];
-      for (let p = 0; p < NP; p++) {
-        const v = amt[c * NP + p] * f; amt[c * NP + p] -= v; load[p] += v;
-      }
-      thick[c] *= 1 - f;
+      const c = cells[i], m = LEVEL * ws[i]; ms += m;
+      for (let p = 0; p < NP; p++) avg[p] += m * amt[c * NP + p];
     }
-    // 2) 묻은 물감(헤라 위에서 이미 섞인 상태)을 내려놓는다.
-    //    먼저 헤라 가운데부터 빈 곳을 FILM 두께로 채우고(→ 펴 발라도 색이 흐려지지 않음),
-    //    남는 몫은 물감 있는 곳에 고루 돌려줘서 계속 섞이게 한다.
+    if (ms > 0) for (let p = 0; p < NP; p++) avg[p] /= ms;
+    // 2) 묻히기 + 1) 적용
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i], m = LEVEL * ws[i], f = PICK * ws[i];
+      for (let p = 0; p < NP; p++) {
+        let v = amt[c * NP + p]; v += m * (avg[p] - v);
+        const t = v * f; load[p] += t; amt[c * NP + p] = v - t;
+      }
+    }
+    // 3) 내려놓기
     let loadSum = 0; for (let p = 0; p < NP; p++) loadSum += load[p];
-    if (loadSum > 1e-6) {
-      let budget = loadSum * DROP;
-      const give = new Float32Array(cells.length);
-      const order = cells.map((_, i) => i).sort((i, j) => ws[j] - ws[i]);
-      // 가운데(무게 큰 칸)부터 둥글게 채운다. 예산이 모자라면 경계 고리의 칸들에 고르게 나눠서
-      // 한쪽으로 쏠린 들쭉날쭉한 자국이 생기지 않게 한다
-      // 빈 바닥(물감 없는 칸)은 SPREAD 만큼만 채운다 → 조금씩 넓어지고 한 번에 얇게 확 퍼지지 않음
-      const need = order.map(i => { const t = thick[cells[i]]; return Math.max(0, FILM * (0.65 + 0.35 * ws[i]) * (t >= COV1 ? 1 : SPREAD) - t); });
-      let k = 0;
-      while (k < order.length && budget > 0) {
-        // 무게가 비슷한(0.06 이내) 칸들을 한 고리로 묶는다
-        let e = k, ringNeed = 0;
-        while (e < order.length && ws[order[k]] - ws[order[e]] < 0.06) { ringNeed += need[e]; e++; }
-        const f = ringNeed > 0 ? Math.min(1, budget / ringNeed) : 0;
-        for (let q = k; q < e; q++) { const g = need[q] * f; give[order[q]] += g; budget -= g; }
-        k = e;
-      }
-      if (budget > 0) {
-        let hs = 0; const hw = cells.map((c, i) => { const v = ws[i] * (thick[c] > COV1 ? 1 : 0.05); hs += v; return v; });
-        for (let i = 0; i < cells.length; i++) give[i] += budget * hw[i] / (hs || 1);
-      }
-      let used = 0;
+    if (loadSum > 1e-7) {
       for (let i = 0; i < cells.length; i++) {
-        if (give[i] <= 0) continue;
-        const c = cells[i], k = give[i] / loadSum;
+        const c = cells[i], k = DROP * ws[i] / wsum;
         for (let p = 0; p < NP; p++) amt[c * NP + p] += load[p] * k;
-        used += give[i];
       }
-      const keep = Math.max(0, 1 - used / loadSum);
-      for (let p = 0; p < NP; p++) load[p] *= keep;
+      for (let p = 0; p < NP; p++) load[p] *= 1 - DROP;
     }
     for (const c of cells) {
-      let s = 0; for (let p = 0; p < NP; p++) { if (amt[c * NP + p] < 1e-7) amt[c * NP + p] = 0; s += amt[c * NP + p]; }
+      let s = 0; for (let p = 0; p < NP; p++) { if (amt[c * NP + p] < 1e-8) amt[c * NP + p] = 0; s += amt[c * NP + p]; }
       thick[c] = s; dirty[c] = 1;
-    }
-    // 3) 헤라 날 아래 물감끼리 직접 섞는다: 각 칸의 성분을 헤라 아래 평균 성분 쪽으로 당긴다.
-    //    가중 평균을 쓰므로 물감 총량은 그대로 보존된다.
-    {
-      const mavg = new Float64Array(NP); let mt = 0;
-      const mc = new Float32Array(cells.length);
-      for (let i = 0; i < cells.length; i++) {
-        const c = cells[i]; if (thick[c] < COV1) continue;
-        mc[i] = MIX * Math.min(1, ws[i] * 1.6);
-        mt += mc[i] * thick[c];
-        for (let p = 0; p < NP; p++) mavg[p] += mc[i] * amt[c * NP + p];
-      }
-      if (mt > 1e-6) {
-        for (let p = 0; p < NP; p++) mavg[p] /= mt;
-        for (let i = 0; i < cells.length; i++) {
-          if (!mc[i]) continue;
-          const c = cells[i], t = thick[c], m = mc[i];
-          for (let p = 0; p < NP; p++) amt[c * NP + p] += m * (t * mavg[p] - amt[c * NP + p]);
-        }
-      }
     }
     needsRender = needsPaint = true;
   }
@@ -245,9 +206,12 @@ import { createScene } from './scene3d.js';
   }
   function knifeRelease() {
     // 헤라에 남은 물감은 마지막 위치에 모두 내려놓는다 (물감이 사라지지 않게)
+    // 한 점에 쏟으면 혹이 생기므로, 헤라 날 넓이에 고르게 펴서 내려놓는다
     let s = 0; for (let p = 0; p < NP; p++) s += knife.load[p];
     if (s > 1e-7) {
-      for (let p = 0; p < NP; p++) if (knife.load[p] > 0) deposit(clampG(knife.x, GX), clampG(knife.y, GY), p, knife.load[p]);
+      const keep = [LEVEL, PICK, DROP]; LEVEL = 0; PICK = 0; DROP = 1;
+      knifeStep(clampG(knife.x, GX), clampG(knife.y, GY));
+      [LEVEL, PICK, DROP] = keep;
     }
     knife.load.fill(0); knife.active = false;
     lowPaintHint();
@@ -521,6 +485,7 @@ import { createScene } from './scene3d.js';
 
   const WT = new Float32Array(N), WC = new Float32Array(N * 3), TS = new Float32Array(N);
   // 격자 → 물감 텍스처(높이 half-float, 색 sRGB + 덮임)
+  const ALPHA_K = 1 / (2 * COV1);
   function paintTextures() {
     for (let c = 0; c < N; c++) {
       const t = thick[c];
@@ -538,10 +503,10 @@ import { createScene } from './scene3d.js';
     const inv = 1 / RS;
     for (let Y = 0; Y < RH; Y++) {
       let v = (Y + 0.5) * inv - 0.5; if (v < 0) v = 0; if (v > GY - 1) v = GY - 1;
-      const y0 = Math.min(GY - 2, v | 0); let fy = v - y0; fy = fy * fy * (3 - 2 * fy);
+      const y0 = Math.min(GY - 2, v | 0); const fy = v - y0;   // 그냥 쌍선형 보간 (smoothstep 보간은 칸 모양 계단이 생김)
       for (let X = 0; X < RW; X++) {
         let u = (X + 0.5) * inv - 0.5; if (u < 0) u = 0; if (u > GX - 1) u = GX - 1;
-        const x0 = Math.min(GX - 2, u | 0); let fx = u - x0; fx = fx * fx * (3 - 2 * fx);
+        const x0 = Math.min(GX - 2, u | 0); const fx = u - x0;
         const c00 = y0 * GX + x0, c10 = c00 + 1, c01 = c00 + GX, c11 = c01 + 1;
         const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
         const i = Y * RW + X, o = i * 4;
@@ -550,12 +515,13 @@ import { createScene } from './scene3d.js';
         // 높이: 두께 + 물감 결. 덮이지 않은 곳은 0
         const h = a > 0 ? (t > 1.4 ? 1.4 : t) * 0.9 + NOISE[i] * (t > 0.45 ? 0.45 : t) * 0.12 : 0;
         HEIGHT[i] = DataUtils.toHalfFloat(h * a);
-        if (a > 0) {
+        if (t > 1e-5) {
           const ws = WT[c00] * w00 + WT[c10] * w10 + WT[c01] * w01 + WT[c11] * w11 + 1e-9;
           COLOR[o] = lut((WC[c00 * 3] * w00 + WC[c10 * 3] * w10 + WC[c01 * 3] * w01 + WC[c11 * 3] * w11) / ws);
           COLOR[o + 1] = lut((WC[c00 * 3 + 1] * w00 + WC[c10 * 3 + 1] * w10 + WC[c01 * 3 + 1] * w01 + WC[c11 * 3 + 1] * w11) / ws);
           COLOR[o + 2] = lut((WC[c00 * 3 + 2] * w00 + WC[c10 * 3 + 2] * w10 + WC[c01 * 3 + 2] * w01 + WC[c11 * 3 + 2] * w11) / ws);
-          COLOR[o + 3] = Math.round(a * 255);
+          // 알파에는 덮임 대신 두께를 그대로 담는다(0 ~ 2·COV1). 셰이더가 픽셀마다 덮임 경계를 계산해 가장자리가 매끄럽다
+          COLOR[o + 3] = Math.round(Math.min(1, t * ALPHA_K) * 255);
         } else COLOR[o + 3] = 0;
       }
     }
@@ -728,7 +694,7 @@ import { createScene } from './scene3d.js';
     gridClient(gx, gy) { const r = cv.getBoundingClientRect(), [x, y] = S3.project(gx, gy); return [r.left + x, r.top + y]; }, lens, judge, recompute, GX, GY, NP, amt, thick,
     // 테스트용: 격자 좌표로 물감 짜기 / 헤라 긋기 / 섞임 정도 재기
     squeezeAt(gx, gy, pigment, amount) { deposit(gx, gy, pigment, amount); },
-    tune(o) { if (o.PICK != null) PICK = o.PICK; if (o.DROP != null) DROP = o.DROP; if (o.MIX != null) MIX = o.MIX; if (o.SCRAPE != null) SCRAPE = o.SCRAPE; if (o.SPREAD != null) SPREAD = o.SPREAD; return { PICK, DROP, MIX, SCRAPE, SPREAD }; },
+    tune(o) { if (o.PICK != null) PICK = o.PICK; if (o.DROP != null) DROP = o.DROP; if (o.LEVEL != null) LEVEL = o.LEVEL; return { PICK, DROP, LEVEL }; },
     stayStats(x0, y0, x1, y1) {
       // 원래 칠한 자리(x0..x1, y0..y1)에 남은 물감 비율, 보이는 칸 수, 가장 두꺼운 곳
       let inside = 0, all = 0, vis = 0, maxT = 0;

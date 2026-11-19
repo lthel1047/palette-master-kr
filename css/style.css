@@ -96,7 +96,8 @@ button { font-family: inherit; cursor: pointer; }
 #cv:focus { outline: none; }
 
 .toast {
-  position: absolute; left: 50%; top: 14px; transform: translate(-50%, -8px);
+  /* 목표 색·완성 버튼에 가리지 않게 팔레트 윗변 바로 아래, 그 위 층에 띄운다 */
+  position: absolute; z-index: 5; left: 50%; top: var(--toast-top, 14px); transform: translate(-50%, -8px);
   max-width: min(92%, 420px);
   background: rgba(20,20,22,.88); color: #fff;
   padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.4; text-align: center;
