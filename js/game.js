@@ -21,8 +21,11 @@ import { createScene } from './scene3d.js';
   const SQUEEZE_RATE = 12;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
   const BLOB_R = 2.9;           // 짜낸 물감 방울 반지름 (칸)
   const KNIFE_R = 6.5;          // 헤라 반지름 (칸)
-  const MIX = 0.5;              // 헤라 아래 물감끼리 한 걸음마다 섞이는 정도 (0~1)
-  const PICK = 0.42, DROP = 0.45;  // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
+  let MIX = 0.6;                // 헤라 아래 물감끼리 한 걸음마다 섞이는 정도 (0~1)
+  let SCRAPE = COV0;            // 이보다 얇은(안 보이는) 막만 헤라가 걷어 감 → 칠한 곳에 구멍이 안 남
+  let SPREAD = 0.5;              // 빈 바닥으로 펴지는 정도 (1 = 빈 곳도 FILM 두께까지 채움)
+  // 헤라는 물감을 조금만 떠서(PICK) 대부분 바로 내려놓고(DROP), 섞기는 주로 제자리에서(MIX) 한다
+  let PICK = 0.12, DROP = 0.85;    // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
   const LENS_R = 11;            // 돋보기 테 반지름 (칸)
   const JUDGE_R = LENS_R - 1.2; // 판정 범위 = 테 안쪽
   const SCORE_ZERO = 40;        // CIEDE2000 이 값 이상이면 0%
@@ -165,7 +168,7 @@ import { createScene } from './scene3d.js';
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i];
       if (thick[c] <= 0) continue;
-      const f = thick[c] < COV1 ? 1 : PICK * ws[i];
+      const f = thick[c] < SCRAPE ? 1 : PICK * ws[i];
       for (let p = 0; p < NP; p++) {
         const v = amt[c * NP + p] * f; amt[c * NP + p] -= v; load[p] += v;
       }
@@ -181,7 +184,8 @@ import { createScene } from './scene3d.js';
       const order = cells.map((_, i) => i).sort((i, j) => ws[j] - ws[i]);
       // 가운데(무게 큰 칸)부터 둥글게 채운다. 예산이 모자라면 경계 고리의 칸들에 고르게 나눠서
       // 한쪽으로 쏠린 들쭉날쭉한 자국이 생기지 않게 한다
-      const need = order.map(i => Math.max(0, FILM * (0.65 + 0.35 * ws[i]) - thick[cells[i]]));
+      // 빈 바닥(물감 없는 칸)은 SPREAD 만큼만 채운다 → 조금씩 넓어지고 한 번에 얇게 확 퍼지지 않음
+      const need = order.map(i => { const t = thick[cells[i]]; return Math.max(0, FILM * (0.65 + 0.35 * ws[i]) * (t >= COV1 ? 1 : SPREAD) - t); });
       let k = 0;
       while (k < order.length && budget > 0) {
         // 무게가 비슷한(0.06 이내) 칸들을 한 고리로 묶는다
@@ -710,6 +714,16 @@ import { createScene } from './scene3d.js';
     gridClient(gx, gy) { const r = cv.getBoundingClientRect(), [x, y] = S3.project(gx, gy); return [r.left + x, r.top + y]; }, lens, judge, recompute, GX, GY, NP, amt, thick,
     // 테스트용: 격자 좌표로 물감 짜기 / 헤라 긋기 / 섞임 정도 재기
     squeezeAt(gx, gy, pigment, amount) { deposit(gx, gy, pigment, amount); },
+    tune(o) { if (o.PICK != null) PICK = o.PICK; if (o.DROP != null) DROP = o.DROP; if (o.MIX != null) MIX = o.MIX; if (o.SCRAPE != null) SCRAPE = o.SCRAPE; if (o.SPREAD != null) SPREAD = o.SPREAD; return { PICK, DROP, MIX, SCRAPE, SPREAD }; },
+    stayStats(x0, y0, x1, y1) {
+      // 원래 칠한 자리(x0..x1, y0..y1)에 남은 물감 비율, 보이는 칸 수, 가장 두꺼운 곳
+      let inside = 0, all = 0, vis = 0, maxT = 0;
+      for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
+        const t = thick[y * GX + x]; all += t; if (t >= COV1) vis++; if (t > maxT) maxT = t;
+        if (x >= x0 && x < x1 && y >= y0 && y < y1) inside += t;
+      }
+      return { stay: inside / all, visible: vis, maxT };
+    },
     knifeStroke(pts) {
       knife.x = knife.px = pts[0][0]; knife.y = knife.py = pts[0][1]; knifeStep(pts[0][0], pts[0][1]);
       for (const [x, y] of pts.slice(1)) knifeTo(x, y);
