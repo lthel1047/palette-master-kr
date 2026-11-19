@@ -401,7 +401,6 @@ import { createScene } from './scene3d.js';
       ok: mode !== 'normal' && !res.fail && (mode === 'speed' || res.score > 0),
     });
     requestAnimationFrame(() => card.classList.add('show'));
-    SND() && SND().result(res.score, !res.fail);
     const t0 = performance.now() + 450, dur = 1300;
     cancelAnimationFrame(revealRaf);
     const tick = now => {
@@ -556,7 +555,6 @@ import { createScene } from './scene3d.js';
     const tube = S3.pickTube(e.clientX, e.clientY);
     if (tube >= 0) {
       // 집자마자 바닥에 찍히지 않게 처음엔 빠르게 움직이는 것으로 본다
-      SND() && SND().tick();
       drag = { id: e.pointerId, mode: 'tube', tube, gx: at.gx, gy: at.gy, cx: e.clientX, cy: e.clientY, sx: e.clientX, sy: e.clientY, touch, last: null, speed: 600 };
     } else if (atLens && hitLens(atLens.gx, atLens.gy)) {
       drag = { id: e.pointerId, mode: 'lens', ox: lens.x - atLens.gx, oy: lens.y - atLens.gy };
@@ -630,12 +628,10 @@ import { createScene } from './scene3d.js';
         }
         if (!drag.squeezed) deposit(gx, gy, drag.tube, MIN_DAB);
         drag.squeezed = true;
-        SND() && SND().squeeze(flow);
-      } else SND() && SND().squeeze(0);
+      }
       drag.last = [gx, gy];
       needsRender = true;
     }
-    if (!drag || drag.mode !== 'tube') SND() && SND().squeeze(0);
     // 헤라 소리: 움직인 거리/시간 = 속도, 날 아래 물감 두께 = 촉촉함
     if (drag && drag.mode === 'knife') {
       const v = (knife.moved || 0) / Math.max(dt, 1e-3); knife.moved = 0;
