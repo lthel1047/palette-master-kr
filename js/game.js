@@ -18,7 +18,9 @@ import { createScene } from './scene3d.js';
   // 물감은 불투명: 아주 얇은 막(COV0 이하)은 안 보이고, COV1 이상이면 바탕이 완전히 가려진다
   const COV0 = 0.02, COV1 = 0.045;
   const FILM = 0.14;            // 헤라로 펴 바른 물감 막의 두께 (항상 불투명하게 보이는 두께)
-  const SQUEEZE_RATE = 12;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
+  const SQUEEZE_RATE = 20;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
+  const MIN_DAB = 3;            // 튜브를 짧게만 짜도 처음에 최소 이만큼은 나온다
+  const LOW_PAINT = 20;         // 팔레트 물감 총량이 이보다 적은데 헤라로 비비면 '더 짜세요' 안내
   const BLOB_R = 2.9;           // 짜낸 물감 방울 반지름 (칸)
   const KNIFE_R = 6.5;          // 헤라 반지름 (칸)
   let MIX = 0.6;                // 헤라 아래 물감끼리 한 걸음마다 섞이는 정도 (0~1)
@@ -248,6 +250,16 @@ import { createScene } from './scene3d.js';
       for (let p = 0; p < NP; p++) if (knife.load[p] > 0) deposit(clampG(knife.x, GX), clampG(knife.y, GY), p, knife.load[p]);
     }
     knife.load.fill(0); knife.active = false;
+    lowPaintHint();
+  }
+  // 물감을 조금만 짜고 비비면 얇게 펴져 색이 날아가 보인다 → 한 판에 최대 2번 안내
+  let lowHints = 0, lowHintAt = 0;
+  function lowPaintHint() {
+    if (state !== 'playing' || lowHints >= 2 || performance.now() - lowHintAt < 8000) return;
+    let tot = 0; for (let c = 0; c < GX * GY; c++) tot += thick[c];
+    if (tot <= 0 || tot >= LOW_PAINT) return;
+    lowHints++; lowHintAt = performance.now();
+    toast('물감이 적으면 얇게 펴져서 색이 옅어져요. 튜브를 충분히 짠 뒤 천천히 섞어 보세요', 3200);
   }
   const clampG = (v, n) => Math.min(n - 0.5, Math.max(0.5, v));
 
@@ -310,6 +322,7 @@ import { createScene } from './scene3d.js';
     card.classList.toggle('light', target.lab[0] > 72);
     card.setAttribute('aria-label', `목표 색 ${target.hex}`);
     clearPalette();
+    lowHints = 0;
     updateModeChip();
     state = 'playing';
     runStart = performance.now();
@@ -642,6 +655,7 @@ import { createScene } from './scene3d.js';
         for (let i = 1; i <= steps; i++) {
           deposit(from[0] + (gx - from[0]) * i / steps, from[1] + (gy - from[1]) * i / steps, drag.tube, amount);
         }
+        if (!drag.squeezed) deposit(gx, gy, drag.tube, MIN_DAB);
         drag.squeezed = true;
       }
       drag.last = [gx, gy];
