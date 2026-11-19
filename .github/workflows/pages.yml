@@ -2,10 +2,11 @@ name: Deploy to GitHub Pages
 
 # main → 실제 사이트 https://saekgam.cc
 # dev  → 테스트 사이트 https://saekgam.cc/staging/ (테스트 API·광고 없음)
-# 어느 쪽에 푸시해도 두 브랜치를 함께 묶어서 한 번에 배포한다.
+# 두 브랜치를 함께 묶어서 한 번에 배포한다.
+# (github-pages 배포는 main 에서만 허용되므로, dev 푸시는 staging.yml 이 이 워크플로를 main 으로 실행시킨다)
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
