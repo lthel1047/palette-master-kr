@@ -11,11 +11,13 @@
 
   // ---------- 설정값 ----------
   const GX = 108, GY = 144, N = GX * GY;  // 팔레트 격자 (가로 3 : 세로 4)
-  const FULL = 0.22;            // 이 두께 이상이면 바탕이 완전히 가려짐
-  const SQUEEZE_RATE = 11;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
+  // 물감은 불투명: 아주 얇은 막(COV0 이하)은 안 보이고, COV1 이상이면 바탕이 완전히 가려진다
+  const COV0 = 0.02, COV1 = 0.045;
+  const FILM = 0.14;            // 헤라로 펴 바른 물감 막의 두께 (항상 불투명하게 보이는 두께)
+  const SQUEEZE_RATE = 12;      // 튜브에서 초당 나오는 물감 양 (두께×칸)
   const BLOB_R = 2.9;           // 짜낸 물감 방울 반지름 (칸)
   const KNIFE_R = 5.0;          // 헤라 반지름 (칸)
-  const PICK = 0.32, DROP = 0.34;  // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
+  const PICK = 0.42, DROP = 0.45;  // 헤라가 한 걸음마다 묻혀 가는/내려놓는 비율
   const LENS_R = 15;            // 돋보기 렌즈 반지름 (칸)
   const ZOOM = 1.6;             // 돋보기 배율 (판정 범위 = 보이는 범위)
   const JUDGE_R = LENS_R / ZOOM;
@@ -56,9 +58,11 @@
 
   // ---------- 캔버스 / 레이아웃 ----------
   const cv = $('cv'), ctx = cv.getContext('2d');
-  const off = document.createElement('canvas'); off.width = GX; off.height = GY;
+  const off = document.createElement('canvas');
   const offCtx = off.getContext('2d');
-  const img = offCtx.createImageData(GX, GY);
+  let RS = 0, RW = 0, RH = 0, img = null;          // 물감 그림 해상도: 칸당 RS×RS 픽셀
+  let HT, HA, HR, HG, HB, NOISE;                     // 고해상도 버퍼
+  let needsPaint = true, lastPaintMs = 0;
   let W = 0, H = 0, DPR = 1, P = { x: 0, y: 0, w: 0, h: 0, cell: 1 }, tubes = [];
 
   function layout() {
@@ -71,6 +75,7 @@
     if (ph > availH) { ph = availH; pw = ph * GX / GY; }
     P = { x: (W - pw) / 2, y: 2, w: pw, h: ph, cell: pw / GX };
     document.documentElement.style.setProperty('--palette-w', `${Math.max(pw, 260)}px`);
+    setupRenderBuffers(Math.max(2, Math.min(3, Math.round(P.cell * DPR / 2))));
     // 튜브 배치
     const n = NP, span = Math.min(W - 12, Math.max(pw + 40, 320));
     const step = span / n, tw = Math.min(34, step * 0.62), th = tw * 2.75;
@@ -94,9 +99,11 @@
     }
   }
   // 바탕 + 물감 덮임 정도를 반영한 실제 보이는 색(음영 없음)
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const coverage = t => smooth(COV0, COV1, t);
   function shownColor(c, out) {
     cellColor(c);
-    const t = Math.min(1, thick[c] / FULL), cov = t * (2 - t);
+    const cov = coverage(thick[c]);
     for (let k = 0; k < 3; k++) out[k] = PAPER[k] * (1 - cov) + col[c * 3 + k] * cov;
     return out;
   }
@@ -104,6 +111,7 @@
     for (let c = 0; c < N; c++) thick[c] = 0;
     for (let c = 0; c < N; c++) { let s = 0; for (let p = 0; p < NP; p++) s += amt[c * NP + p]; thick[c] = s; }
     dirty.fill(1);
+    needsPaint = true;
   }
 
   // ---------- 물감 짜기 ----------
@@ -125,7 +133,7 @@
       const a = amount * (1 - d2 / r2) / wsum, c = y * GX + x;
       amt[c * NP + pigment] += a; thick[c] += a; dirty[c] = 1;
     }
-    needsRender = true;
+    needsRender = needsPaint = true;
   }
 
   // ---------- 헤라 ----------
@@ -141,28 +149,55 @@
       const w = 1 - d2 / r2; cells.push(y * GX + x); ws.push(w); wsum += w;
     }
     if (!cells.length) return;
-    // 1) 헤라 아래 물감을 일부 묻혀 간다
+    // 1) 헤라 아래 물감을 묻혀 간다. 안 보일 만큼 얇은 막은 통째로 걷어 가서 자국을 남기지 않는다
     for (let i = 0; i < cells.length; i++) {
-      const c = cells[i], f = PICK * ws[i];
+      const c = cells[i];
       if (thick[c] <= 0) continue;
+      const f = thick[c] < COV1 ? 1 : PICK * ws[i];
       for (let p = 0; p < NP; p++) {
         const v = amt[c * NP + p] * f; amt[c * NP + p] -= v; load[p] += v;
       }
+      thick[c] *= 1 - f;
     }
-    // 2) 묻은 물감(이미 섞인 상태)을 고르게 내려놓는다
+    // 2) 묻은 물감(헤라 위에서 이미 섞인 상태)을 내려놓는다.
+    //    먼저 헤라 가운데부터 빈 곳을 FILM 두께로 채우고(→ 펴 발라도 색이 흐려지지 않음),
+    //    남는 몫은 물감 있는 곳에 고루 돌려줘서 계속 섞이게 한다.
     let loadSum = 0; for (let p = 0; p < NP; p++) loadSum += load[p];
-    if (loadSum > 1e-7) {
-      for (let i = 0; i < cells.length; i++) {
-        const c = cells[i], share = DROP * ws[i] / wsum;
-        for (let p = 0; p < NP; p++) amt[c * NP + p] += load[p] * share;
+    if (loadSum > 1e-6) {
+      let budget = loadSum * DROP;
+      const give = new Float32Array(cells.length);
+      const order = cells.map((_, i) => i).sort((i, j) => ws[j] - ws[i]);
+      // 가운데(무게 큰 칸)부터 둥글게 채운다. 예산이 모자라면 경계 고리의 칸들에 고르게 나눠서
+      // 한쪽으로 쏠린 들쭉날쭉한 자국이 생기지 않게 한다
+      const need = order.map(i => Math.max(0, FILM * (0.65 + 0.35 * ws[i]) - thick[cells[i]]));
+      let k = 0;
+      while (k < order.length && budget > 0) {
+        // 무게가 비슷한(0.06 이내) 칸들을 한 고리로 묶는다
+        let e = k, ringNeed = 0;
+        while (e < order.length && ws[order[k]] - ws[order[e]] < 0.06) { ringNeed += need[e]; e++; }
+        const f = ringNeed > 0 ? Math.min(1, budget / ringNeed) : 0;
+        for (let q = k; q < e; q++) { const g = need[q] * f; give[order[q]] += g; budget -= g; }
+        k = e;
       }
-      for (let p = 0; p < NP; p++) load[p] *= (1 - DROP);
+      if (budget > 0) {
+        let hs = 0; const hw = cells.map((c, i) => { const v = ws[i] * (thick[c] > COV1 ? 1 : 0.05); hs += v; return v; });
+        for (let i = 0; i < cells.length; i++) give[i] += budget * hw[i] / (hs || 1);
+      }
+      let used = 0;
+      for (let i = 0; i < cells.length; i++) {
+        if (give[i] <= 0) continue;
+        const c = cells[i], k = give[i] / loadSum;
+        for (let p = 0; p < NP; p++) amt[c * NP + p] += load[p] * k;
+        used += give[i];
+      }
+      const keep = Math.max(0, 1 - used / loadSum);
+      for (let p = 0; p < NP; p++) load[p] *= keep;
     }
     for (const c of cells) {
       let s = 0; for (let p = 0; p < NP; p++) { if (amt[c * NP + p] < 1e-7) amt[c * NP + p] = 0; s += amt[c * NP + p]; }
       thick[c] = s; dirty[c] = 1;
     }
-    needsRender = true;
+    needsRender = needsPaint = true;
   }
   function knifeTo(gx, gy) {
     const dx = gx - knife.x, dy = gy - knife.y, dist = Math.hypot(dx, dy);
@@ -284,14 +319,14 @@
     updateBest();
   }
   function clearPalette() {
-    amt.fill(0); thick.fill(0); dirty.fill(1); knife.load.fill(0); needsRender = true;
+    amt.fill(0); thick.fill(0); dirty.fill(1); knife.load.fill(0); needsRender = needsPaint = true;
   }
 
   // ---------- 판정 ----------
   function judge() {
     const cells = judgeCells();
     let paint = 0;
-    for (const c of cells) paint += Math.min(1, thick[c] / FULL);
+    for (const c of cells) paint += coverage(thick[c]);
     if (paint / cells.length < PAINT_MIN) return null;
     const rgb = [0, 0, 0], lab = [0, 0, 0], avg = [0, 0, 0];
     let sum = 0;
@@ -436,26 +471,106 @@
   for (let i = 0; i <= 4096; i++) LUT[i] = Math.round(CE.toSrgb(i / 4096) * 255);
   const lut = v => LUT[v <= 0 ? 0 : v >= 1 ? 4096 : (v * 4096) | 0];
 
+  // ---------- 고해상도 물감 렌더러 ----------
+  // 칸(격자) 값을 RS배로 부드럽게 보간해 두께 지도를 만들고, 그 기울기로 빛·광택·그림자를 넣는다.
+  // 가장자리는 두께 임계값으로 또렷하게 자르므로 뿌옇게 번지지 않는다.
+  function setupRenderBuffers(rs) {
+    if (rs === RS && img) return;
+    RS = rs; RW = GX * RS; RH = GY * RS;
+    off.width = RW; off.height = RH;
+    img = offCtx.createImageData(RW, RH);
+    const M = RW * RH;
+    HT = new Float32Array(M); HA = new Float32Array(M);
+    HR = new Float32Array(M); HG = new Float32Array(M); HB = new Float32Array(M);
+    // 물감 결(임파스토)용 노이즈: 두 옥타브 값 노이즈, 가로로 살짝 늘림
+    NOISE = new Float32Array(M);
+    const grid = (sx, sy, seed) => {
+      const gw = Math.ceil(RW / sx) + 2, gh = Math.ceil(RH / sy) + 2, g = new Float32Array(gw * gh);
+      let st = seed; for (let i = 0; i < g.length; i++) { st = (st * 16807) % 2147483647; g[i] = st / 2147483647 - 0.5; }
+      return (x, y) => {
+        const u = x / sx, v = y / sy, x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0;
+        const sxx = fx * fx * (3 - 2 * fx), syy = fy * fy * (3 - 2 * fy);
+        const a = g[y0 * gw + x0], b = g[y0 * gw + x0 + 1], c = g[(y0 + 1) * gw + x0], d = g[(y0 + 1) * gw + x0 + 1];
+        return a + (b - a) * sxx + (c - a) * syy + (a - b - c + d) * sxx * syy;
+      };
+    };
+    const n1 = grid(RS * 1.6, RS * 0.9, 11), n2 = grid(RS * 0.6, RS * 0.45, 29);
+    for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) NOISE[y * RW + x] = n1(x, y) * 0.7 + n2(x, y) * 0.45;
+    needsPaint = true;
+  }
+
+  const WT = new Float32Array(N), WC = new Float32Array(N * 3), TS = new Float32Array(N);
+  const L = (() => { const v = [-0.45, -0.58, 0.68], m = Math.hypot(...v); return v.map(x => x / m); })();
+  const Hh = (() => { const v = [L[0], L[1], L[2] + 1], m = Math.hypot(...v); return v.map(x => x / m); })();
+
   function paintImage() {
-    const d = img.data, rgb = [0, 0, 0];
+    // 칸마다 색에 두께 가중치를 곱해 둔다 (보간할 때 가장자리가 바탕색으로 탁해지지 않게)
+    for (let c = 0; c < N; c++) {
+      const t = thick[c];
+      if (t > 1e-5) {
+        cellColor(c);
+        const w = Math.min(t, 0.25) + 1e-4;
+        WT[c] = w; WC[c * 3] = col[c * 3] * w; WC[c * 3 + 1] = col[c * 3 + 1] * w; WC[c * 3 + 2] = col[c * 3 + 2] * w;
+      } else { WT[c] = 0; WC[c * 3] = WC[c * 3 + 1] = WC[c * 3 + 2] = 0; }
+    }
+    // 그리기용으로 두께를 살짝 부드럽게 (격자 모서리가 각져 보이지 않게)
     for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
-      const c = y * GX + x, i = c * 4;
-      shownColor(c, rgb);
-      let shade = 1, spec = 0;
-      if (thick[c] > 0.002) {
-        // 두께 기울기로 빛(왼쪽 위) 음영과 광택
-        const h = k => Math.min(1.4, thick[k]);
-        const hl = x > 0 ? h(c - 1) : h(c), hr = x < GX - 1 ? h(c + 1) : h(c);
-        const hu = y > 0 ? h(c - GX) : h(c), hd = y < GY - 1 ? h(c + GX) : h(c);
-        const gx = hr - hl, gy = hd - hu;
-        const lit = -(gx + gy) * 1.6;
-        shade = 1 + Math.max(-0.35, Math.min(0.25, lit));
-        spec = Math.max(0, lit - 0.18) * 0.55;
+      const c = y * GX + x, t = thick[c];
+      const l = x > 0 ? thick[c - 1] : t, r = x < GX - 1 ? thick[c + 1] : t, u = y > 0 ? thick[c - GX] : t, d = y < GY - 1 ? thick[c + GX] : t;
+      TS[c] = t * 0.5 + (l + r + u + d) * 0.125;
+    }
+    // 1단계: 고해상도 두께·색 보간
+    const inv = 1 / RS;
+    for (let Y = 0; Y < RH; Y++) {
+      let v = (Y + 0.5) * inv - 0.5; if (v < 0) v = 0; if (v > GY - 1) v = GY - 1;
+      const y0 = Math.min(GY - 2, v | 0); let fy = v - y0; fy = fy * fy * (3 - 2 * fy);
+      for (let X = 0; X < RW; X++) {
+        let u = (X + 0.5) * inv - 0.5; if (u < 0) u = 0; if (u > GX - 1) u = GX - 1;
+        const x0 = Math.min(GX - 2, u | 0); let fx = u - x0; fx = fx * fx * (3 - 2 * fx);
+        const c00 = y0 * GX + x0, c10 = c00 + 1, c01 = c00 + GX, c11 = c01 + 1;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+        const i = Y * RW + X;
+        const t = TS[c00] * w00 + TS[c10] * w10 + TS[c01] * w01 + TS[c11] * w11;
+        HT[i] = t;
+        const a = coverage(t);
+        HA[i] = a;
+        if (a > 0) {
+          const ws = WT[c00] * w00 + WT[c10] * w10 + WT[c01] * w01 + WT[c11] * w11 + 1e-9;
+          HR[i] = (WC[c00 * 3] * w00 + WC[c10 * 3] * w10 + WC[c01 * 3] * w01 + WC[c11 * 3] * w11) / ws;
+          HG[i] = (WC[c00 * 3 + 1] * w00 + WC[c10 * 3 + 1] * w10 + WC[c01 * 3 + 1] * w01 + WC[c11 * 3 + 1] * w11) / ws;
+          HB[i] = (WC[c00 * 3 + 2] * w00 + WC[c10 * 3 + 2] * w10 + WC[c01 * 3 + 2] * w01 + WC[c11 * 3 + 2] * w11) / ws;
+        }
       }
-      d[i] = lut(rgb[0] * shade + spec);
-      d[i + 1] = lut(rgb[1] * shade + spec);
-      d[i + 2] = lut(rgb[2] * shade + spec);
-      d[i + 3] = 255;
+    }
+    // 2단계: 빛·광택·그림자
+    const d = img.data;
+    const hs = 3.2 / RS * 2.2;                         // 높이 → 기울기 세기
+    const sdx = Math.round(RS * 1.1), sdy = Math.round(RS * 1.5);   // 물감 그림자 방향(오른쪽 아래)
+    const height = i => { const t = HT[i]; return (t > 1.4 ? 1.4 : t) * 0.9 + NOISE[i] * (t > 0.45 ? 0.45 : t) * 0.55; };
+    for (let Y = 0; Y < RH; Y++) for (let X = 0; X < RW; X++) {
+      const i = Y * RW + X, o = i * 4, a = HA[i];
+      // 바탕(팔레트): 근처 물감이 드리운 그림자
+      let pr = PAPER[0], pg = PAPER[1], pb = PAPER[2];
+      const sx = X - sdx, sy = Y - sdy;
+      if (sx >= 0 && sy >= 0) {
+        const st = HT[sy * RW + sx];
+        if (st > COV0) { const sh = 1 - 0.2 * smooth(COV0, 0.35, st); pr *= sh; pg *= sh; pb *= sh; }
+      }
+      let r = pr, g = pg, b = pb;
+      if (a > 0) {
+        const xl = X > 0 ? i - 1 : i, xr = X < RW - 1 ? i + 1 : i, yu = Y > 0 ? i - RW : i, yd = Y < RH - 1 ? i + RW : i;
+        let nx = (height(xl) - height(xr)) * hs, ny = (height(yu) - height(yd)) * hs, nz = 1;
+        const nm = 1 / Math.sqrt(nx * nx + ny * ny + 1); nx *= nm; ny *= nm; nz *= nm;
+        const diff = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
+        const nh = Math.max(0, nx * Hh[0] + ny * Hh[1] + nz * Hh[2]);
+        const spec = Math.pow(nh, 70) * 0.75 + Math.pow(nh, 12) * 0.05;
+        const edge = 0.86 + 0.14 * smooth(COV0, 0.2, HT[i]);   // 가장자리가 살짝 어두운 두께감
+        const lit = (0.6 + 0.58 * diff) * edge;
+        r = pr + (HR[i] * lit + spec - pr) * a;
+        g = pg + (HG[i] * lit + spec - pg) * a;
+        b = pb + (HB[i] * lit + spec - pb) * a;
+      }
+      d[o] = lut(r); d[o + 1] = lut(g); d[o + 2] = lut(b); d[o + 3] = 255;
     }
     offCtx.putImageData(img, 0, 0);
   }
@@ -541,7 +656,7 @@
     ctx.beginPath(); ctx.arc(g.cx, g.cy, g.R, 0, Math.PI * 2); ctx.clip();
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     const sr = LENS_R / ZOOM;
-    ctx.drawImage(off, lens.x - sr, lens.y - sr, sr * 2, sr * 2, g.cx - g.R, g.cy - g.R, g.R * 2, g.R * 2);
+    ctx.drawImage(off, (lens.x - sr) * RS, (lens.y - sr) * RS, sr * 2 * RS, sr * 2 * RS, g.cx - g.R, g.cy - g.R, g.R * 2, g.R * 2);
     const gl = ctx.createRadialGradient(g.cx - g.R * 0.4, g.cy - g.R * 0.45, 0, g.cx, g.cy, g.R);
     gl.addColorStop(0, 'rgba(255,255,255,.35)'); gl.addColorStop(0.35, 'rgba(255,255,255,.06)'); gl.addColorStop(1, 'rgba(0,0,0,.10)');
     ctx.fillStyle = gl; ctx.fillRect(g.cx - g.R, g.cy - g.R, g.R * 2, g.R * 2);
@@ -564,7 +679,7 @@
     ctx.shadowColor = 'rgba(0,0,0,.30)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8;
     ctx.fillStyle = '#efeee9'; roundRect(ctx, P.x, P.y, P.w, P.h, 4); ctx.fill();
     ctx.restore();
-    paintImage();
+    if (needsPaint) { const t0 = performance.now(); paintImage(); needsPaint = false; lastPaintMs = performance.now() - t0; }
     ctx.save();
     roundRect(ctx, P.x, P.y, P.w, P.h, 4); ctx.clip();
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
@@ -601,7 +716,7 @@
     } else {
       const t = hitTube(x, y);
       if (t) {
-        drag = { id: e.pointerId, mode: 'tube', tube: t, x, y, sx: x, sy: y, touch, last: null };
+        drag = { id: e.pointerId, mode: 'tube', tube: t, x, y, sx: x, sy: y, touch, last: null, speed: 600 };   // 집자마자 바닥에 찍히지 않게 처음엔 빠르게 움직이는 것으로 본다
       } else {
         const [gx, gy] = toGrid(x, y);
         if (!inPalette(gx, gy)) { try { cv.releasePointerCapture(e.pointerId); } catch (err) {} return; }
@@ -662,7 +777,7 @@
         const from = drag.last && inPalette(...drag.last) ? drag.last : [gx, gy];
         const dist = Math.hypot(gx - from[0], gy - from[1]);
         // 빠르게 지나가면 거의 안 나오고, 멈추거나 천천히 움직일 때 많이 나온다
-        const flow = 1 / (1 + Math.pow(drag.speed / 240, 2));
+        const flow = 1 / (1 + Math.pow(drag.speed / 200, 3));
         const steps = Math.max(1, Math.ceil(dist / 0.8));
         const amount = SQUEEZE_RATE * dt * flow / steps;
         for (let i = 1; i <= steps; i++) {
@@ -733,11 +848,11 @@
 
   // 테스트/디버그용 훅
   window.__game = {
-    get target() { return target; }, get state() { return state; }, get mode() { return mode; },
+    get target() { return target; }, get state() { return state; }, get paintMs() { return lastPaintMs; }, get renderScale() { return RS; }, get mode() { return mode; },
     startMode, setElapsed(ms) { runStart = performance.now() - ms; }, get tubes() { return tubes.map(t => ({ x: t.x, y: t.y })); }, get palette() { return P; }, lens, judge, recompute, GX, GY, NP, amt, thick,
     fillLensWith(parts) {
       const tot = parts.reduce((a, b) => a + b, 0);
-      for (const c of judgeCells()) for (let p = 0; p < NP; p++) amt[c * NP + p] = parts[p] / tot * FULL * 2;
+      for (const c of judgeCells()) for (let p = 0; p < NP; p++) amt[c * NP + p] = parts[p] / tot * 0.3;
       recompute(); needsRender = true;
     },
   };

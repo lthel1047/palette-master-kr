@@ -37,3 +37,10 @@
 - API: `GET /feedback`, `POST /feedback {name?, body}` / DB 표: `feedback`
 - 댓글 숨기기(지우지 않고 안 보이게): D1 Console에서 `UPDATE feedback SET hidden = 1 WHERE id = 번호;`
 - 전체 보기: `SELECT id, name, body, datetime(created_at/1000, 'unixepoch', '+9 hours') FROM feedback ORDER BY id DESC;`
+
+## 그래픽·헤라 개선 (2026-11-19, 플레이어 피드백 반영)
+- 펴 바르면 색이 흐려짐 → 물감을 불투명하게 계산 (두께 0.02~0.045 사이에서 바로 덮임), 헤라는 일정 두께(FILM 0.14)로 펴 바름
+- 뿌옇다 → 칸당 3×3 픽셀 고해상도 렌더러, 가장자리를 또렷하게 자름
+- 물감 같지 않다 → 두께 지도 + 물감 결 노이즈로 빛·광택·바닥 그림자 표현
+- 섞은 뒤 자국 → 안 보일 만큼 얇은 막은 헤라가 통째로 걷어 감, 빈 바닥엔 막을 덜 깜
+- 물감 그림은 물감이 바뀔 때만 다시 그림 (돋보기·튜브 이동 때는 재사용)
