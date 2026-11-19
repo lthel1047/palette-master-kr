@@ -24,8 +24,11 @@ for name in ['index.html', 'ads-config.js', 'favicon.svg', 'og.png']:
 for d in ['css', 'js', 'vendor']:
     if (src / d).exists():
         shutil.copytree(src / d, out / d, dirs_exist_ok=True)
-if not staging and (src / 'ads.txt').exists():
-    shutil.copy2(src / 'ads.txt', out / 'ads.txt')
+# 실제 사이트 루트에만 두는 파일: ads.txt, 검색엔진용 robots.txt·sitemap.xml, 구글/네이버 소유 확인 파일
+if not staging:
+    for f in ['ads.txt', 'robots.txt', 'sitemap.xml', *[p.name for p in src.glob('google*.html')], *[p.name for p in src.glob('naver*.html')]]:
+        if (src / f).exists():
+            shutil.copy2(src / f, out / f)
 
 html = (out / 'index.html').read_text(encoding='utf-8')
 html = re.sub(r'(src|href)="((?:js/[^"]+\.js)|ads-config\.js|(?:css/[^"]+\.css))"', rf'\1="\2?v={ver}"', html)

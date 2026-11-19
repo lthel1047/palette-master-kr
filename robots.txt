@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /staging/
+
+Sitemap: https://saekgam.cc/sitemap.xml
